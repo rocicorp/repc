@@ -48,7 +48,7 @@ struct Dispatcher {
 
 impl Dispatcher {
     async fn open(&mut self, req: &Request) -> Response {
-        if req.db_name.len() == 0 {
+        if req.db_name.is_empty() {
             return Err("db_name must be non-empty".to_string());
         }
         if self.connections.contains_key(&req.db_name[..]) {
