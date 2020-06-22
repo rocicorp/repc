@@ -21,12 +21,14 @@ impl IdbStore {
         let request = factory.open(name)?;
         let (sender, receiver) = oneshot::channel::<()>();
         let callback = Closure::once(move || {
-            sender.send(()).expect("oneshot send failed");
+            if let Err(_) = sender.send(()) {
+                log!("oneshot send failed");
+            }
         });
         request.set_onsuccess(Some(callback.as_ref().unchecked_ref()));
         request.set_onerror(Some(callback.as_ref().unchecked_ref()));
         if let Err(e) = receiver.await {
-            return Err(JsValue::from(e.to_string()));
+            return Err(e.to_string().into());
         }
         let idb: IdbDatabase = match request.result() {
             Ok(v) => v.into(),
