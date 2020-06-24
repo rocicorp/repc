@@ -93,8 +93,9 @@ pub async fn dispatch(db_name: String, rpc: String, data: String) -> Response {
         data,
         response: tx,
     };
-    {
-        SENDER.lock().unwrap().send(request).await;
+    match SENDER.lock() {
+        Ok(v) => v.send(request).await,
+        Err(v) => return Err(v.to_string()),
     }
     match rx.recv().await {
         Err(v) => Err(v.to_string()),
