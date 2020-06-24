@@ -25,7 +25,7 @@ pub fn buzhash() {
 
 #[wasm_bindgen]
 pub async fn dispatch(db_name: String, rpc: String, args: String) -> Result<String, JsValue> {
-    initPanicHook();
+    init_panic_hook();
     match dispatch::dispatch(db_name, rpc, args).await {
         Err(v) => Err(JsValue::from_str(&v[..])),
         Ok(v) => Ok(v),

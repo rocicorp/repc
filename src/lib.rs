@@ -5,7 +5,6 @@ extern crate async_std;
 extern crate lazy_static;
 
 mod chunk;
-mod prolly;
 #[macro_use]
 mod console;
 mod dispatch;
