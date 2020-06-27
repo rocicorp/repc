@@ -10,10 +10,10 @@ pub struct MemStore {
 
 impl MemStore {
     #[allow(dead_code)]
-    pub async fn new() -> Result<Option<MemStore>> {
-        Ok(Some(MemStore {
+    pub fn new() -> MemStore {
+        MemStore {
             map: HashMap::new(),
-        }))
+        }
     }
 }
 
@@ -33,5 +33,23 @@ impl Store for MemStore {
             None => Ok(None),
             Some(v) => Ok(Some(v.to_vec())),
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::executor::block_on;
+
+    #[test]
+    fn basics() {
+        let mut ms = MemStore::new();
+        assert_eq!(false, block_on(ms.has("foo")).unwrap());
+        assert_eq!(None, block_on(ms.get("foo")).unwrap());
+        block_on(ms.put("foo", "bar".as_bytes())).unwrap();
+        assert_eq!(true, block_on(ms.has("foo")).unwrap());
+        assert_eq!(Some("bar".as_bytes().to_vec()),
+            block_on(ms.get("foo")).unwrap());
+        assert_eq!(false, block_on(ms.has("bar")).unwrap());
+        assert_eq!(None, block_on(ms.get("bar")).unwrap());
     }
 }
