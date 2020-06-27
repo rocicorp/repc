@@ -43,14 +43,16 @@ async fn dispatch_loop(rx: Receiver<Request>) {
                     continue;
                 }
                 let db = {
-                    match dispatcher.connections.get_mut(&req.db_name[..]) {
+                    let d = &mut dispatcher;
+                    let db = match d.connections.get_mut(&req.db_name[..]) {
                         Some(v) => v,
                         None => {
                             let err = Err(format!("\"{}\" not open", req.db_name));
                             req.response.send(err).await;
                             continue;
                         }
-                    }
+                    };
+                    db
                 };
                 let response = match req.rpc.as_str() {
                     "has" => dispatcher.has(&**db, &req.data).await,
