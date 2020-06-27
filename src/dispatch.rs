@@ -43,7 +43,7 @@ async fn dispatch_loop(rx: Receiver<Request>) {
                     continue;
                 }
                 let db = {
-                    match dispatcher.connections.get(&req.db_name[..]) {
+                    match dispatcher.connections.get_mut(&req.db_name[..]) {
                         Some(v) => v,
                         None => {
                             let err = Err(format!("\"{}\" not open", req.db_name));
@@ -55,7 +55,7 @@ async fn dispatch_loop(rx: Receiver<Request>) {
                 let response = match req.rpc.as_str() {
                     "has" => dispatcher.has(&**db, &req.data).await,
                     "get" => dispatcher.get(&**db, &req.data).await,
-                    "put" => dispatcher.put(&**db, &req.data).await,
+                    "put" => dispatcher.put(&mut **db, &req.data).await,
                     _ => Err("Unsupported rpc name".to_string()),
                 };
                 req.response.send(response).await;
@@ -151,7 +151,7 @@ impl Dispatcher {
         }
     }
 
-    async fn put(&self, db: &dyn Store, data: &String) -> Response {
+    async fn put(&self, db: &mut dyn Store, data: &String) -> Response {
         let req: PutRequest = match DeJson::deserialize_json(data) {
             Ok(v) => v,
             Err(_) => return Err("Failed to parse request".into()),
