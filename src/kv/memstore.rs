@@ -1,7 +1,6 @@
-use async_trait::async_trait;
 use crate::kv::{Store, StoreError};
+use async_trait::async_trait;
 use std::collections::HashMap;
-use std::fmt;
 
 type Result<T> = std::result::Result<T, StoreError>;
 
@@ -10,8 +9,11 @@ pub struct MemStore {
 }
 
 impl MemStore {
-    pub async fn new(name: &str) -> Result<Option<MemStore>> {
-        Ok(Some(MemStore{map: HashMap::new()}))
+    #[allow(dead_code)]
+    pub async fn new() -> Result<Option<MemStore>> {
+        Ok(Some(MemStore {
+            map: HashMap::new(),
+        }))
     }
 }
 

@@ -1,7 +1,6 @@
 use crate::kv::{Store, StoreError};
 use async_trait::async_trait;
 use futures::channel::oneshot;
-use std::fmt;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::IdbDatabase;
