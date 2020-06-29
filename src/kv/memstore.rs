@@ -150,6 +150,7 @@ mod tests {
     use super::*;
 
     #[async_std::test]
+    #[cfg(not(target_arch = "wasm32"))]
     async fn basics() -> std::result::Result<(), StoreError> {
         let mut ms = MemStore::new();
         assert_eq!(false, ms.has("foo").await?);

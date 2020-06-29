@@ -69,11 +69,11 @@ impl IdbStore {
 
 #[async_trait(?Send)]
 impl Store for IdbStore {
-    async fn read(&self) -> Result<Box<dyn Read>> {
+    async fn read<'a>(&'a self) -> Result<Box<dyn Read + 'a>> {
         return Err(StoreError::Str("Not supported".to_string()));
     }
 
-    async fn write(&self) -> Result<Box<dyn Write>> {
+    async fn write<'a>(&'a self) -> Result<Box<dyn Write + 'a>> {
         return Err(StoreError::Str("Not supported".into()));
     }
 
