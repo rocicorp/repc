@@ -1,22 +1,20 @@
 use std::fmt;
 use std::str;
 
-use super::chunk;
-
 // KVKey is the key we use to store our dag data in the underlying
 // kvstore.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Key {
-    ChunkData(chunk::Key),
-    ChunkRefs(chunk::Key),
+    ChunkData(String),
+    ChunkRefs(String),
     Head(String),
 }
 
 impl fmt::Display for Key {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Key::ChunkData(chunk_key) => write!(f, "c/{}/d", chunk_key),
-            Key::ChunkRefs(chunk_key) => write!(f, "c/{}/r", chunk_key),
+            Key::ChunkData(hash) => write!(f, "c/{}/d", hash),
+            Key::ChunkRefs(hash) => write!(f, "c/{}/r", hash),
             Key::Head(name) => write!(f, "h/{}", name),
         }
     }
@@ -33,9 +31,9 @@ impl str::FromStr for Key {
             if parts[0] == "c" {
                 if parts.len() == 3 {
                     if parts[2] == "d" {
-                        return Ok(Key::ChunkData(name));
+                        return Ok(Key::ChunkData(String::from(name)));
                     } else if parts[2] == "r" {
-                        return Ok(Key::ChunkRefs(name));
+                        return Ok(Key::ChunkRefs(String::from(name)));
                     }
                 }
             } else if parts[0] == "h" {
@@ -55,15 +53,15 @@ mod tests {
         fn test(k: &Key, expected: &str) {
             assert_eq!(expected, k.to_string());
         }
-        test(&Key::ChunkData("".to_string()), "c//d");
-        test(&Key::ChunkData("a".to_string()), "c/a/d");
-        test(&Key::ChunkData("ab".to_string()), "c/ab/d");
-        test(&Key::ChunkRefs("".to_string()), "c//r");
-        test(&Key::ChunkRefs("a".to_string()), "c/a/r");
-        test(&Key::ChunkRefs("ab".to_string()), "c/ab/r");
-        test(&Key::Head("".to_string()), "h/");
-        test(&Key::Head("a".to_string()), "h/a");
-        test(&Key::Head("ab".to_string()), "h/ab");
+        test(&Key::ChunkData(String::from("")), "c//d");
+        test(&Key::ChunkData(String::from("a")), "c/a/d");
+        test(&Key::ChunkData(String::from("ab")), "c/ab/d");
+        test(&Key::ChunkRefs(String::from("")), "c//r");
+        test(&Key::ChunkRefs(String::from("a")), "c/a/r");
+        test(&Key::ChunkRefs(String::from("ab")), "c/ab/r");
+        test(&Key::Head(String::from("")), "h/");
+        test(&Key::Head(String::from("a")), "h/a");
+        test(&Key::Head(String::from("ab")), "h/ab");
     }
 
     #[test]
@@ -92,10 +90,10 @@ mod tests {
     #[test]
     fn roundtrip() -> Result<(), ParseError> {
         let cases: &[Key] = &[
-            Key::ChunkData("".to_string()),
-            Key::ChunkData("a".to_string()),
-            Key::ChunkRefs("".to_string()),
-            Key::ChunkRefs("a".to_string()),
+            Key::ChunkData(String::from("".to_string())),
+            Key::ChunkData(String::from("a".to_string())),
+            Key::ChunkRefs(String::from("".to_string())),
+            Key::ChunkRefs(String::from("a".to_string())),
             Key::Head("".to_string()),
             Key::Head("a".to_string()),
         ];

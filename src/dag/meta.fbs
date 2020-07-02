@@ -1,0 +1,9 @@
+namespace meta;
+
+// Metadata about a chunk, stored separately to enable exploring
+// dag without reading entire dag.
+table Meta {
+    refs: [string];
+}
+
+root_type Meta;
