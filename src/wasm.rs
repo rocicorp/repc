@@ -1,10 +1,11 @@
 use std::sync::Once;
+use log::warn;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsValue;
 use wee_alloc;
 
 use crate::dispatch;
-use crate::kv::idbstore::IdbStore;
+use crate::dag::{chunk, key};
 use crate::prolly::chunker::Chunker;
 
 // Use `wee_alloc` as the global allocator.
@@ -12,9 +13,11 @@ use crate::prolly::chunker::Chunker;
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[wasm_bindgen]
-pub async fn new_replicache(name: String) {
+pub async fn exercise_dag() {
     init_panic_hook();
-    IdbStore::new(&name).await.expect("IdbStore::new failed");
+    let c = chunk::Chunk::new("h1".to_string(), vec![0, 1], &vec!["r1"]);
+    let k: key::Key = "c/h1/d".parse().unwrap();
+    warn!("{:?} {:?}", c, k);
 }
 
 #[wasm_bindgen]
