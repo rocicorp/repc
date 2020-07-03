@@ -17,7 +17,8 @@ pub async fn exercise_dag() {
     init_panic_hook();
     let c = chunk::Chunk::new("h1".to_string(), vec![0, 1], &vec!["r1"]);
     let k: key::Key = "c/h1/d".parse().unwrap();
-    warn!("{:?} {:?}", c, k);
+    let c2 = chunk::Chunk::read(c.hash().into(), c.data().to_vec(), c.meta().map(|b| b.to_vec()));
+    warn!("{:?} {:?} {:?}", c, c2, k);
 }
 
 #[wasm_bindgen]

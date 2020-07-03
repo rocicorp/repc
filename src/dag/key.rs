@@ -27,13 +27,13 @@ impl str::FromStr for Key {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts = s.split("/").collect::<Vec<&str>>();
         if parts.len() >= 2 {
-            let name = String::from(parts[1]);
+            let name = parts[1].into();
             if parts[0] == "c" {
                 if parts.len() == 3 {
                     if parts[2] == "d" {
-                        return Ok(Key::ChunkData(String::from(name)));
+                        return Ok(Key::ChunkData(name));
                     } else if parts[2] == "r" {
-                        return Ok(Key::ChunkRefs(String::from(name)));
+                        return Ok(Key::ChunkRefs(name));
                     }
                 }
             } else if parts[0] == "h" {
@@ -53,15 +53,15 @@ mod tests {
         fn test(k: &Key, expected: &str) {
             assert_eq!(expected, k.to_string());
         }
-        test(&Key::ChunkData(String::from("")), "c//d");
-        test(&Key::ChunkData(String::from("a")), "c/a/d");
-        test(&Key::ChunkData(String::from("ab")), "c/ab/d");
-        test(&Key::ChunkRefs(String::from("")), "c//r");
-        test(&Key::ChunkRefs(String::from("a")), "c/a/r");
-        test(&Key::ChunkRefs(String::from("ab")), "c/ab/r");
-        test(&Key::Head(String::from("")), "h/");
-        test(&Key::Head(String::from("a")), "h/a");
-        test(&Key::Head(String::from("ab")), "h/ab");
+        test(&Key::ChunkData("".into()), "c//d");
+        test(&Key::ChunkData("a".into()), "c/a/d");
+        test(&Key::ChunkData("ab".into()), "c/ab/d");
+        test(&Key::ChunkRefs("".into()), "c//r");
+        test(&Key::ChunkRefs("a".into()), "c/a/r");
+        test(&Key::ChunkRefs("ab".into()), "c/ab/r");
+        test(&Key::Head("".into()), "h/");
+        test(&Key::Head("a".into()), "h/a");
+        test(&Key::Head("ab".into()), "h/ab");
     }
 
     #[test]
@@ -90,12 +90,12 @@ mod tests {
     #[test]
     fn roundtrip() -> Result<(), ParseError> {
         let cases: &[Key] = &[
-            Key::ChunkData(String::from("".to_string())),
-            Key::ChunkData(String::from("a".to_string())),
-            Key::ChunkRefs(String::from("".to_string())),
-            Key::ChunkRefs(String::from("a".to_string())),
-            Key::Head("".to_string()),
-            Key::Head("a".to_string()),
+            Key::ChunkData("".into()),
+            Key::ChunkData("a".into()),
+            Key::ChunkRefs("".into()),
+            Key::ChunkRefs("a".into()),
+            Key::Head("".into()),
+            Key::Head("a".into()),
         ];
 
         for c in cases {
