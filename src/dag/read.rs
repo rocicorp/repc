@@ -14,15 +14,15 @@ impl<'a> Read<'_> {
         Read{kvr}
     }
 
-    pub async fn has_chunk(&mut self, hash: &str) -> Result<bool> {
+    pub async fn has_chunk(&self, hash: &str) -> Result<bool> {
         has_chunk(self.kvr.as_ref(), hash).await
     }
 
-    pub async fn get_chunk(&mut self, hash: &str) -> Result<Option<Chunk>> {
+    pub async fn get_chunk(&self, hash: &str) -> Result<Option<Chunk>> {
         get_chunk(self.kvr.as_ref(), hash).await
     }
 
-    pub async fn get_head(&mut self, name: &str) -> Result<Option<String>> {
+    pub async fn get_head(&self, name: &str) -> Result<Option<String>> {
         get_head(self.kvr.as_ref(), name).await
     }
 }

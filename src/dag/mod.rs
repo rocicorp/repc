@@ -24,6 +24,7 @@ mod write;
 
 use crate::kv;
 
+#[derive(Debug)]
 pub enum Error {
     Storage(kv::StoreError),
     CorruptStore,
