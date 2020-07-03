@@ -2,6 +2,7 @@ use super::chunk::Chunk;
 use super::key::Key;
 use super::{Error, Result};
 use crate::kv;
+use log::error;
 
 #[allow(dead_code)]
 pub struct Read<'a> {
@@ -45,9 +46,10 @@ pub async fn get_head(kvr: &dyn kv::Read, name: &str) -> Result<Option<String>> 
     if let Some(bytes) = kvr.get(&Key::Head(name).to_string()).await? {
         match String::from_utf8(bytes) {
             Ok(s) => return Ok(Some(s)),
-            // TODO: The detail of the error should at least get logged somewhere.
-            // Is the right thing to do to log it right here? (I guess so)
-            Err(_) => return Err(Error::CorruptStore),
+            Err(e) => {
+                error!("Could not decode head: {}: {}", name, e);
+                return Err(Error::CorruptStore)
+            }
         }
     }
     Ok(None)
