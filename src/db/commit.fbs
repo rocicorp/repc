@@ -1,0 +1,32 @@
+namespace commit;
+
+table LocalMeta {
+    mutator_name: string;
+    mutator_args_json: [ubyte];
+    mutation_id: ulong;
+    original_hash: string;
+}
+
+table SnapshotMeta {
+    last_mutation_id: ulong;
+    server_state_id: string;
+}
+
+union MetaTyped {
+    LocalMeta,
+    SnapshotMeta,
+}
+
+table Meta {
+    local_create_date: string;
+    basis_hash: string;
+    checksum: string;
+    typed: MetaTyped;
+}
+
+table Commit {
+    meta: Meta;
+    value_hash: string;
+}
+
+root_type Commit;
