@@ -21,7 +21,7 @@ pub async fn exercise_prolly() {
     let mut store = dag::store::Store::new(Box::new(kv));
     let mut write = store.write().await.unwrap();
     let mut map = Map::new();
-    map.put("foo".as_bytes().to_vec(), "bar".as_bytes().to_vec());
+    map.put(b"foo".to_vec(), b"bar".to_vec());
     let h = map.flush(&mut write).await.unwrap();
     warn!("{}", h);
 }

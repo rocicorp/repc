@@ -72,11 +72,11 @@ impl Leaf {
         builder.finish(root, None);
 
         Leaf {
-            chunk: Chunk::new(builder.collapse(), &vec![]),
+            chunk: Chunk::new(builder.collapse(), &[]),
         }
     }
 
-    pub fn iter<'a>(s: Option<&'a Self>) -> impl Iterator<Item = Entry<'a>> {
+    pub fn iter(s: Option<&Self>) -> impl Iterator<Item = Entry<'_>> {
         let root = s.map(|leaf| leaf::get_root_as_leaf(leaf.chunk.data()));
         LeafIter {
             fb_iter: root.and_then(|r| r.entries()).map(|e| e.iter()),

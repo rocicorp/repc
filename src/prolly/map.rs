@@ -1,3 +1,5 @@
+#![allow(clippy::useless_let_if_seq)]
+
 use super::leaf;
 use super::leaf::Leaf;
 use super::Entry;
@@ -55,7 +57,7 @@ impl Map {
         }
     }
 
-    pub async fn load<'a>(hash: &str, read: Read<'a>) -> Result<Map, LoadError> {
+    pub async fn load(hash: &str, read: Read<'_>) -> Result<Map, LoadError> {
         let chunk = read.get_chunk(hash).await?;
         let chunk = chunk.ok_or(LoadError::UnknownHash)?;
         let base = Leaf::load(chunk)?;
@@ -82,14 +84,14 @@ impl Map {
         self.pending.insert(key, None);
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = Entry<'a>> {
+    pub fn iter(&self) -> impl Iterator<Item = Entry<'_>> {
         Iter {
             base: Leaf::iter(self.base.as_ref()).peekable(),
             pending: self.pending.iter().peekable(),
         }
     }
 
-    pub async fn flush<'a>(&mut self, write: &mut Write<'a>) -> Result<Hash, FlushError> {
+    pub async fn flush(&mut self, write: &mut Write<'_>) -> Result<Hash, FlushError> {
         // TODO: Consider locking during this
         let new_base = Leaf::new(self.iter());
         write.put_chunk(new_base.chunk()).await?;
