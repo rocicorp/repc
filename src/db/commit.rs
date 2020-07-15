@@ -10,6 +10,7 @@ pub struct Commit {
 
 #[allow(dead_code)]
 impl Commit {
+    #![allow(clippy::too_many_arguments)]
     pub fn new_local(
         local_create_date: &str,
         basis_hash: &str,
@@ -25,7 +26,7 @@ impl Commit {
             mutation_id,
             mutator_name: builder.create_string(mutator_name).into(),
             mutator_args_json: builder.create_vector(mutator_args_json).into(),
-            original_hash: original_hash.map(|h| builder.create_string(h)).into(),
+            original_hash: original_hash.map(|h| builder.create_string(h)),
         };
         let local_meta = commit::LocalMeta::create(&mut builder, local_meta_args);
         Commit::new_impl(
