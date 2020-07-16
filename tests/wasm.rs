@@ -7,7 +7,8 @@ wasm_bindgen_test_configure!(run_in_browser);
 
 #[wasm_bindgen_test]
 async fn test_bench() {
-    bench::drive(bench::snooze()).await;
+    console_error_panic_hook::set_once();
+    bench::drive(&bench::snooze).await;
 }
 
 #[wasm_bindgen_test]
