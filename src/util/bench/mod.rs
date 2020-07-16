@@ -19,7 +19,7 @@ pub async fn snooze() {
 pub async fn drive<Fut: Future<Output = ()>>(target: &dyn Fn() -> Fut) {
     for _ in 0u8..100 {
         let now = now_nanos();
-        //let f = target().await;
+        target().await;
         let elapsed = now_nanos() - now;
         // TODO: not sure how to see output -- info! compiles and runs but i don't know where it goes to under wasm-pack test
         panic!("took {:.3}s", elapsed as f64 / 1e9);
