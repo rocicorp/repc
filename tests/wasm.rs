@@ -1,8 +1,14 @@
+use replicache_client::util::bench;
 use replicache_client::wasm;
 use wasm_bindgen_test::wasm_bindgen_test_configure;
 use wasm_bindgen_test::*;
 
 wasm_bindgen_test_configure!(run_in_browser);
+
+#[wasm_bindgen_test]
+async fn test_bench() {
+    bench::drive(bench::snooze()).await;
+}
 
 #[wasm_bindgen_test]
 async fn test_dag() {

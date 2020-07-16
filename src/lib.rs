@@ -8,6 +8,7 @@ extern crate log;
 mod dag;
 mod dispatch;
 mod hash;
+pub mod util;
 
 #[cfg(not(default))]
 pub mod kv;

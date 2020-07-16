@@ -34,6 +34,7 @@ version = "0.3.40"
 features = [
     "console",
     "DomException",
+    "Performance",
     "Window",
     "IdbDatabase",
     "IdbFactory",
