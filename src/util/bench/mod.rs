@@ -16,7 +16,7 @@ pub async fn snooze() {
     task::sleep(Duration::from_millis(42)).await;
 }
 
-pub async fn drive<Fut: Future<Output = ()>>(target: &dyn Fn() -> Fut) {
+pub async fn drive<Fut: Future<Output = ()>, Target: Fn() -> Fut>(target: Target) {
     let now = now_nanos();
     for _ in 0u8..100 {
         target().await;
