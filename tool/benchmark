@@ -1,0 +1,46 @@
+#!/bin/sh
+
+# Script to run WebAssembly benchmark tests within a browser.
+
+PREFIX=benches
+
+for i in "$@"; do
+    case $i in
+    --help)
+        echo "$0 [--help] [<test prefix>]"
+        exit 0
+        ;;
+    *)
+        PREFIX=$1
+        ;;
+esac
+done
+
+WASM_BINDGEN_TEST_TIMEOUT=60  # Raise as more benchmarks are added.
+
+wasm-pack test --release --chrome --headless -- --lib $PREFIX \
+    --features benchmark \
+    | grep "ns/iter" \
+    | python3 -c '
+import sys
+
+lines = sys.stdin.readlines()
+lines.reverse()  # Restore tests to the order their functions appear in.
+
+# Figure out the maximum width of each column.
+cols = {}
+for l in lines:
+    for i, word in enumerate(l.split()):
+        cols[i] = max(len(word), cols.get(i, 0))
+
+# Make non-unit columns have an extra width for readability.
+for i in range(2, len(cols), 2):
+    cols[i] += 1
+
+# Assemble format string, and format each line with it.
+format = "%%-%ds" % (cols[0] + 1)
+format += " ".join("%%%ds" % i for i in list(cols.values())[1:])
+for l in lines:
+    words = l.split()
+    words += [""] * (len(cols) - len(words))
+    print(format % tuple(words))'
