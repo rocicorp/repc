@@ -46,6 +46,10 @@ import sys
 lines = sys.stdin.readlines()
 lines.reverse()  # Restore tests to the order their functions appear in.
 
+if not lines:
+    print("No benchmarks were selected.")
+    sys.exit(0)
+
 # Figure out the maximum width of each column.
 cols = {}
 for l in lines:
