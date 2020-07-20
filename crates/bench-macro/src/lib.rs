@@ -18,7 +18,7 @@ pub fn wasm_bench(
     while let Some(_) = attr.next() {
         match &attr.next() {
             Some(proc_macro::TokenTree::Punct(op)) if op.as_char() == ',' => {}
-            Some(_) => panic!("malformed `#[wasm_bindgen_test]` attribute"),
+            Some(_) => panic!("malformed `#[wasm_bench]` attribute"),
             None => break,
         }
     }

@@ -6,8 +6,8 @@ PREFIX=benches
 
 for i in "$@"; do
     case $i in
-    --help)
-        echo "$0 [--help] [<test prefix>]"
+    -h|--help)
+        echo "`basename -- $0` [--help] [<test prefix>]"
         exit 0
         ;;
     *)
@@ -16,7 +16,26 @@ for i in "$@"; do
 esac
 done
 
-WASM_BINDGEN_TEST_TIMEOUT=60  # Raise as more benchmarks are added.
+SYSTEM=`uname -s`
+
+if [ $SYSTEM = 'Darwin' ]; then
+    HW=`system_profiler SPHardwareDataType`
+    STORAGE=`system_profiler SPStorageDataType`
+    CPU=`echo "$HW" | grep Processor\ Name: | cut -d:  -f2-`
+    SPEED=`echo "$HW" | grep Speed: | cut -d: -f2-`
+    MEM=`echo "$HW" | grep Memory: | cut -d: -f2-`
+    DISK_TYPE=`echo "$STORAGE" | grep Medium\ Type: | head -1 | cut -d: -f2-`
+    DISK_SIZE=`echo "$STORAGE" | grep Capacity: | head -1 | cut -d: -f2- | cut -d\  -f2-3`
+
+    echo "Hardware:$CPU$SPEED,$MEM RAM, $DISK_SIZE$DISK_TYPE"
+elif [ $SYSTEM = 'Linux' ]; then
+    LSCPU=`lscpu`
+    CPU=`echo "$LSCPU" | grep Model\ name: | cut -d\  -f3- | sed -e 's/^[[:space:]]*//'`
+    CORES=`echo "$LSCPU" | grep CPU\(s\): | cut -d\  -f2- | sed -e 's/^[[:space:]]*//'`
+    echo "Hardware: $CPU ($CORES cores)"
+fi
+
+export WASM_BINDGEN_TEST_TIMEOUT=120  # Raise as more benchmarks are added.
 
 wasm-pack test --release --chrome --headless -- --lib $PREFIX \
     --features benchmark \
@@ -34,7 +53,7 @@ for l in lines:
         cols[i] = max(len(word), cols.get(i, 0))
 
 # Make non-unit columns have an extra width for readability.
-for i in range(2, len(cols), 2):
+for i in range(0, len(cols), 2):
     cols[i] += 1
 
 # Assemble format string, and format each line with it.

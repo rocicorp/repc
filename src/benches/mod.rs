@@ -12,7 +12,8 @@ async fn performance_now(b: &mut Bench) {
         .performance()
         .expect("performance should be available");
 
-    for _ in 0..b.iterations() {
+    let n = b.iterations();
+    for _ in 0..n {
         || -> u64 { (performance.now() * 1e6) as u64 }();
     }
 }

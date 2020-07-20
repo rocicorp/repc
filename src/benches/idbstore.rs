@@ -1,5 +1,6 @@
 use crate::kv::idbstore::IdbStore;
 use crate::kv::Store;
+use futures::stream::{FuturesUnordered, StreamExt};
 use rand::Rng;
 use wasm_bench::*;
 
@@ -22,7 +23,7 @@ async fn read1x256(b: &mut Bench) {
 
 #[wasm_bench]
 async fn read1x1024(b: &mut Bench) {
-    read1x(b, 1 * 1024).await
+    read1x(b, 1024).await
 }
 
 #[wasm_bench]
@@ -42,17 +43,81 @@ async fn read1x65536(b: &mut Bench) {
 
 async fn read1x(b: &mut Bench, size: u64) {
     let store = IdbStore::new(&rand_string(12)[..]).await.unwrap().unwrap();
-    let key = rand_string(12);
+
+    let n = b.iterations() as usize;
+    let mut keys = Vec::with_capacity(n);
+    for _ in 0..n {
+        keys.push(rand_string(12));
+    }
+    let bytes = rand_bytes(size as usize);
+
     let wt = store.write().await.unwrap();
-    wt.put(&key, &rand_bytes(size as usize)).await.unwrap();
+    for i in 0..n {
+        wt.put(&keys[i], &bytes).await.unwrap();
+    }
     wt.commit().await.unwrap();
 
     let rt = store.read().await.unwrap();
     b.bytes = size;
-    let n = b.iterations();
     b.reset_timer();
+    for i in 0..n {
+        rt.get(&keys[i]).await.unwrap();
+    }
+}
+
+#[wasm_bench]
+async fn read4x4096(b: &mut Bench) {
+    read(b, 4, 4 * 1024).await
+}
+
+#[wasm_bench]
+async fn read16x4096(b: &mut Bench) {
+    read(b, 16, 4 * 1024).await
+}
+
+#[wasm_bench]
+async fn read64x4096(b: &mut Bench) {
+    read(b, 64, 4 * 1024).await
+}
+
+async fn read(b: &mut Bench, concurrency: usize, size: u64) {
+    let store = IdbStore::new(&rand_string(12)[..]).await.unwrap().unwrap();
+
+    let n = b.iterations() as usize;
+    let mut keys = Vec::with_capacity(n);
     for _ in 0..n {
-        rt.get(&key).await.unwrap();
+        keys.push(rand_string(12));
+    }
+    let bytes = rand_bytes(size as usize);
+
+    let wt = store.write().await.unwrap();
+    for i in 0..n {
+        wt.put(&keys[i], &bytes).await.unwrap();
+    }
+    wt.commit().await.unwrap();
+
+    let rt = store.read().await.unwrap();
+    b.bytes = size;
+    b.reset_timer();
+
+    let mut workers = FuturesUnordered::new();
+    let mut i = 0;
+    while workers.len() < concurrency && i < n {
+        workers.push(rt.get(&keys[i]));
+        i += 1;
+    }
+    loop {
+        match workers.next().await {
+            Some(_) => {
+                if i < n {
+                    workers.push(rt.get(&keys[i]));
+                    i += 1;
+                }
+            }
+            None => {
+                break;
+            }
+        }
     }
 }
 
@@ -81,17 +146,24 @@ async fn write1x65536(b: &mut Bench) {
     write(b, 1, 64 * 1024).await
 }
 
-async fn write(b: &mut Bench, writes: u32, size: u64) {
+async fn write(b: &mut Bench, writes: usize, size: u64) {
     let store = IdbStore::new(&rand_string(12)[..]).await.unwrap().unwrap();
-    let key = rand_string(12);
+    let mut n = (b.iterations() as usize / writes) * writes;
+    let mut keys = Vec::with_capacity(n);
+    for _ in 0..n {
+        keys.push(rand_string(12));
+    }
+    let bytes = rand_bytes(size as usize);
 
     b.bytes = writes as u64 * size;
-    let n = b.iterations();
+    n /= writes;
     b.reset_timer();
+    let mut i = 0;
     for _ in 0..n {
         let wt = store.write().await.unwrap();
         for _ in 0..writes {
-            wt.put(&key, &rand_bytes(size as usize)).await.unwrap();
+            wt.put(&keys[i], &bytes).await.unwrap();
+            i += 1;
         }
         wt.commit().await.unwrap();
     }
