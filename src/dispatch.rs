@@ -3,11 +3,13 @@
 use crate::dag;
 use crate::db;
 use crate::kv::idbstore::IdbStore;
+use crate::kv::Store;
 use async_std::sync::{channel, Receiver, Sender};
 use log::warn;
 use nanoserde::{DeJson, DeJsonErr, SerJson};
 use std::collections::HashMap;
 use std::sync::Mutex;
+use uuid::Uuid;
 use wasm_bindgen_futures::spawn_local;
 
 struct Request {
@@ -92,6 +94,8 @@ struct Dispatcher {
     connections: HashMap<String, Box<dag::Store>>,
 }
 
+const CID_KEY: &str = "cfg/cid";
+
 impl Dispatcher {
     async fn open(&mut self, req: &Request) -> Response {
         if req.db_name.is_empty() {
@@ -100,17 +104,26 @@ impl Dispatcher {
         if self.connections.contains_key(&req.db_name[..]) {
             return Ok("".into());
         }
-        match IdbStore::new(&req.db_name[..]).await {
-            Err(e) => {
-                return Err(format!("Failed to open \"{}\": {}", req.db_name, e));
+        let idb_store = match IdbStore::new(&req.db_name[..]).await {
+            Err(e) => return Err(format!("Failed to open \"{}\": {}", req.db_name, e)),
+            Ok(None) => return Err(format!("Failed to open \"{}\"", req.db_name)),
+            Ok(Some(idb_store)) => {
+                let _client_id = match init_client_id(&idb_store).await {
+                    Ok(v) => v,
+                    Err(why) => {
+                        return Err(format!("Failed to read client ID: {:?}", why));
+                    }
+                };
+                idb_store
             }
-            Ok(v) => {
-                if let Some(kv) = v {
-                    self.connections
-                        .insert(req.db_name.clone(), Box::new(dag::Store::new(Box::new(kv))));
-                }
-            }
-        }
+        };
+
+        self.connections.insert(
+            req.db_name.clone(),
+            Box::new(dag::Store::new(Box::new(idb_store))),
+        );
+
+        // TODO(arv): If we get None in IdbStore::new that should be an error.
         Ok("".into())
     }
 
@@ -238,4 +251,36 @@ enum PutError {
     InvalidJson(DeJsonErr),
     OpenTransactionError(OpenTransactionError),
     CommitError(db::CommitError),
+}
+
+pub async fn init_client_id(s: &dyn Store) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let cid = s.get(CID_KEY).await?;
+    if let Some(cid) = cid {
+        return Ok(cid);
+    }
+    let wt = s.write().await?;
+    let uuid = Uuid::new_v4().as_bytes().to_vec();
+    wt.put(CID_KEY, &uuid).await?;
+    wt.commit().await?;
+    Ok(uuid)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kv::memstore::MemStore;
+
+    #[async_std::test]
+    async fn test_init_client_id() {
+        let kv = MemStore::new();
+        let cid = init_client_id(&kv).await.unwrap();
+        assert_ne!(cid, vec![]);
+
+        let cid2 = init_client_id(&kv).await.unwrap();
+        assert_eq!(cid, cid2);
+
+        let kv = MemStore::new();
+        let cid3 = init_client_id(&kv).await.unwrap();
+        assert_ne!(cid, cid3);
+    }
 }

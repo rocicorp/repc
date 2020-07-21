@@ -2,6 +2,7 @@ pub mod idbstore;
 pub mod memstore;
 
 use async_trait::async_trait;
+use std::error;
 use std::fmt;
 
 #[derive(Debug)]
@@ -16,6 +17,8 @@ impl fmt::Display for StoreError {
         }
     }
 }
+
+impl error::Error for StoreError {}
 
 type Result<T> = std::result::Result<T, StoreError>;
 
