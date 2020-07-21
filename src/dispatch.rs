@@ -2,8 +2,8 @@
 
 use crate::dag;
 use crate::db;
+use crate::kv;
 use crate::kv::idbstore::IdbStore;
-use crate::kv::Store;
 use async_std::sync::{channel, Receiver, Sender};
 use log::warn;
 use nanoserde::{DeJson, DeJsonErr, SerJson};
@@ -253,7 +253,7 @@ enum PutError {
     CommitError(db::CommitError),
 }
 
-pub async fn init_client_id(s: &dyn Store) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+pub async fn init_client_id(s: &dyn kv::Store) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let cid = s.get(CID_KEY).await?;
     if let Some(cid) = cid {
         return Ok(cid);
