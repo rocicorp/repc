@@ -94,7 +94,7 @@ struct Dispatcher {
     connections: HashMap<String, Box<dag::Store>>,
 }
 
-const CID_KEY: &str = "cfg/cid";
+const CID_KEY: &str = "sys/cid";
 
 impl Dispatcher {
     async fn open(&mut self, req: &Request) -> Response {
@@ -253,7 +253,7 @@ enum PutError {
     CommitError(db::CommitError),
 }
 
-pub async fn init_client_id(s: &dyn kv::Store) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+async fn init_client_id(s: &dyn kv::Store) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let cid = s.get(CID_KEY).await?;
     if let Some(cid) = cid {
         return Ok(cid);
