@@ -4,12 +4,13 @@ use crate::dag;
 use crate::db;
 use crate::kv;
 use crate::kv::idbstore::IdbStore;
+use crate::uuid::uuid;
+
 use async_std::sync::{channel, Receiver, Sender};
 use log::warn;
 use nanoserde::{DeJson, DeJsonErr, SerJson};
 use std::collections::HashMap;
 use std::sync::Mutex;
-use uuid::Uuid;
 use wasm_bindgen_futures::spawn_local;
 
 struct Request {
@@ -271,7 +272,7 @@ async fn init_client_id(s: &dyn kv::Store) -> Result<String, InitClientIdError> 
         return Ok(s);
     }
     let wt = s.write().await.map_err(OpenErr)?;
-    let uuid = Uuid::new_v4().to_string();
+    let uuid = uuid();
     wt.put(CID_KEY, &uuid.as_bytes())
         .await
         .map_err(PutClientIdErr)?;

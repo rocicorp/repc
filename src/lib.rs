@@ -20,3 +20,5 @@ mod prolly;
 
 #[cfg(feature = "benchmark")]
 pub mod benches;
+
+mod uuid;
