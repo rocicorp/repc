@@ -31,6 +31,7 @@ async-std = { version = "=1.6.0", features = ["attributes", "unstable"] }
 rand = { version = "0.7.3", features = ["wasm-bindgen"] }
 wasm-bench = { path = "crates/bench" }
 wasm-bindgen-test = "0.3.0"
+regex = "1"
 
 [dependencies.web-sys]
 version = "0.3.40"

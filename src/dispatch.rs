@@ -253,15 +253,29 @@ enum PutError {
     CommitError(db::CommitError),
 }
 
-async fn init_client_id(s: &dyn kv::Store) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    let cid = s.get(CID_KEY).await?;
+#[derive(Debug)]
+enum InitClientIdError {
+    GetErr(kv::StoreError),
+    OpenErr(kv::StoreError),
+    InvalidUtf8(std::string::FromUtf8Error),
+    PutClientIdErr(kv::StoreError),
+    CommitErr(kv::StoreError),
+}
+
+async fn init_client_id(s: &dyn kv::Store) -> Result<String, InitClientIdError> {
+    use InitClientIdError::*;
+
+    let cid = s.get(CID_KEY).await.map_err(GetErr)?;
     if let Some(cid) = cid {
-        return Ok(cid);
+        let s = String::from_utf8(cid).map_err(InvalidUtf8)?;
+        return Ok(s);
     }
-    let wt = s.write().await?;
-    let uuid = Uuid::new_v4().as_bytes().to_vec();
-    wt.put(CID_KEY, &uuid).await?;
-    wt.commit().await?;
+    let wt = s.write().await.map_err(OpenErr)?;
+    let uuid = Uuid::new_v4().to_string();
+    wt.put(CID_KEY, &uuid.as_bytes())
+        .await
+        .map_err(PutClientIdErr)?;
+    wt.commit().await.map_err(CommitErr)?;
     Ok(uuid)
 }
 
@@ -269,12 +283,17 @@ async fn init_client_id(s: &dyn kv::Store) -> Result<Vec<u8>, Box<dyn std::error
 mod tests {
     use super::*;
     use crate::kv::memstore::MemStore;
+    use regex::Regex;
 
     #[async_std::test]
     async fn test_init_client_id() {
         let kv = MemStore::new();
         let cid = init_client_id(&kv).await.unwrap();
-        assert_ne!(cid, vec![]);
+
+        let re =
+            Regex::new(r"^[0-9:A-z]{8}-[0-9:A-z]{4}-4[0-9:A-z]{3}-[0-9:A-z]{4}-[0-9:A-z]{12}$")
+                .unwrap();
+        assert!(re.is_match(&cid));
 
         let cid2 = init_client_id(&kv).await.unwrap();
         assert_eq!(cid, cid2);
