@@ -12,7 +12,7 @@ use wasm_bindgen_futures::spawn_local;
 
 struct Connection<'a> {
     store: dag::Store,
-    transactions: HashMap<u32, Option<db::Write<'a>>>,
+    transactions: HashMap<u32, db::Write<'a>>,
 }
 
 struct Request {
@@ -115,7 +115,7 @@ impl Dispatcher<'_> {
                         req.db_name.clone(),
                         Box::new(Connection {
                             store: dag::Store::new(Box::new(kv)),
-                            transactions: HashMap::<u32, Option<db::Write>>::new(),
+                            transactions: HashMap::<u32, db::Write>::new(),
                         }),
                     );
                 }
@@ -202,6 +202,13 @@ impl Dispatcher<'_> {
             .await
             .map_err(CommitError)?;
         Ok("{}".into())
+    }
+
+    async fn openTransaction(conn: &mut Connection<'_>, data: &str) -> Result<(), ()> {
+        let ds = &mut conn.store;
+        let mut write = Dispatcher::open_transaction(ds).await.unwrap();
+        conn.transactions.insert(42, write);
+        Ok(())
     }
 
     async fn debug(&self, req: &Request) -> Response {
