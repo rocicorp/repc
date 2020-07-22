@@ -10,6 +10,11 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use wasm_bindgen_futures::spawn_local;
 
+struct Connection<'a> {
+    store: dag::Store,
+    transactions: HashMap<u32, Option<db::Write<'a>>>,
+}
+
 struct Request {
     db_name: String,
     rpc: String,
@@ -88,11 +93,11 @@ struct PutRequest {
     value: String,
 }
 
-struct Dispatcher {
-    connections: HashMap<String, Box<dag::Store>>,
+struct Dispatcher<'a> {
+    connections: HashMap<String, Box<Connection<'a>>>,
 }
 
-impl Dispatcher {
+impl Dispatcher<'_> {
     async fn open(&mut self, req: &Request) -> Response {
         if req.db_name.is_empty() {
             return Err("db_name must be non-empty".into());
@@ -106,8 +111,13 @@ impl Dispatcher {
             }
             Ok(v) => {
                 if let Some(kv) = v {
-                    self.connections
-                        .insert(req.db_name.clone(), Box::new(dag::Store::new(Box::new(kv))));
+                    self.connections.insert(
+                        req.db_name.clone(),
+                        Box::new(Connection {
+                            store: dag::Store::new(Box::new(kv)),
+                            transactions: HashMap::<u32, Option<db::Write>>::new(),
+                        }),
+                    );
                 }
             }
         }
@@ -139,7 +149,8 @@ impl Dispatcher {
         Ok(write)
     }
 
-    async fn has(ds: &mut dag::Store, data: &str) -> Result<String, HasError> {
+    async fn has(conn: &mut Connection<'_>, data: &str) -> Result<String, HasError> {
+        let ds = &mut conn.store;
         use HasError::*;
         let req: GetRequest = DeJson::deserialize_json(data).map_err(InvalidJson)?;
         let write = Dispatcher::open_transaction(ds)
@@ -151,8 +162,9 @@ impl Dispatcher {
         }))
     }
 
-    async fn get(ds: &mut dag::Store, data: &str) -> Result<String, GetError> {
+    async fn get(conn: &mut Connection<'_>, data: &str) -> Result<String, GetError> {
         use GetError::*;
+        let ds = &mut conn.store;
         let req: GetRequest = DeJson::deserialize_json(data).map_err(InvalidJson)?;
         let write = Dispatcher::open_transaction(ds)
             .await
@@ -169,8 +181,9 @@ impl Dispatcher {
         }))
     }
 
-    async fn put(ds: &mut dag::Store, data: &str) -> Result<String, PutError> {
+    async fn put(conn: &mut Connection<'_>, data: &str) -> Result<String, PutError> {
         use PutError::*;
+        let ds = &mut conn.store;
         let req: PutRequest = DeJson::deserialize_json(data).map_err(InvalidJson)?;
         let mut write = Dispatcher::open_transaction(ds)
             .await
