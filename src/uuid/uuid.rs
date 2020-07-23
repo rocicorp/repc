@@ -48,7 +48,7 @@ const UUID_V4_FORMAT: [UuidElements; 36] = [
 
 const ERROR_MAKE_CHAR: &str = "Error in making char";
 
-pub fn gen_uuid_with_xorshift(random_numbers: &[u8; 36]) -> String {
+pub fn uuid_from_numbers(random_numbers: &[u8; 36]) -> String {
     UUID_V4_FORMAT
         .iter()
         .enumerate()
@@ -72,7 +72,7 @@ mod tests {
 
     #[test]
     fn test_uuid() {
-        let uuid = gen_uuid_with_xorshift(&[0u8; 36]);
+        let uuid = uuid_from_numbers(&[0u8; 36]);
         assert_eq!(uuid, "00000000-0000-4000-8000-000000000000");
         let re =
             Regex::new(r"^[0-9:A-z]{8}-[0-9:A-z]{4}-4[0-9:A-z]{3}-[0-9:A-z]{4}-[0-9:A-z]{12}$")

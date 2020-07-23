@@ -1,13 +1,12 @@
-mod uuid;
-
-use uuid::gen_uuid_with_xorshift;
 use wasm_bindgen::prelude::*;
+
+mod uuid;
 
 #[wasm_bindgen]
 pub fn uuid() -> String {
     let mut numbers = [0u8; 36];
     make_random_numbers(&mut numbers);
-    gen_uuid_with_xorshift(&numbers)
+    uuid::uuid_from_numbers(&numbers)
 }
 
 #[cfg(target_arch = "wasm32")]
