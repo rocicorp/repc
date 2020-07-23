@@ -10,7 +10,7 @@ pub fn uuid() -> String {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn make_random_numbers(number: &mut [u8]) {
+fn make_random_numbers(numbers: &mut [u8]) {
     web_sys::window()
         .expect("window is not available")
         .crypto()
