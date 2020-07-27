@@ -58,10 +58,4 @@ impl_async_fn! {
     (AsyncFnOnce4, AsyncFnMut4, AsyncFn4, (a0:A0, a1:A1, a2:A2, a3:A3, )),
     (AsyncFnOnce5, AsyncFnMut5, AsyncFn5, (a0:A0, a1:A1, a2:A2, a3:A3, a4:A4, )),
     (AsyncFnOnce6, AsyncFnMut6, AsyncFn6, (a0:A0, a1:A1, a2:A2, a3:A3, a4:A4, a5:A5, )),
-    (AsyncFnOnce7, AsyncFnMut7, AsyncFn7, (a0:A0, a1:A1, a2:A2, a3:A3, a4:A4, a5:A5, a6:A6, )),
-    (AsyncFnOnce8, AsyncFnMut8, AsyncFn8, (a0:A0, a1:A1, a2:A2, a3:A3, a4:A4, a5:A5, a6:A6, a7:A7, )),
-    (AsyncFnOnce9, AsyncFnMut9, AsyncFn9, (a0:A0, a1:A1, a2:A2, a3:A3, a4:A4, a5:A5, a6:A6, a7:A7, a8:A8, )),
-    (AsyncFnOnce10, AsyncFnMut10, AsyncFn10, (a0:A0, a1:A1, a2:A2, a3:A3, a4:A4, a5:A5, a6:A6, a7:A7, a8:A8, a9:A9, )),
-    (AsyncFnOnce11, AsyncFnMut11, AsyncFn11, (a0:A0, a1:A1, a2:A2, a3:A3, a4:A4, a5:A5, a6:A6, a7:A7, a8:A8, a9:A9, a10:A10, )),
-    (AsyncFnOnce12, AsyncFnMut12, AsyncFn12, (a0:A0, a1:A1, a2:A2, a3:A3, a4:A4, a5:A5, a6:A6, a7:A7, a8:A8, a9:A9, a10:A10, a11:A11, )),
 }
