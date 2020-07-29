@@ -4,7 +4,7 @@ use crate::dag;
 use crate::db;
 use crate::kv::idbstore::IdbStore;
 use async_fn::AsyncFn2;
-use async_std::sync::{channel, Receiver, Sender};
+use async_std::sync::{channel, Receiver, RwLock, Sender};
 use log::warn;
 use nanoserde::{DeJson, DeJsonErr, SerJson};
 use std::collections::HashMap;
@@ -38,6 +38,7 @@ async fn dispatch_loop(rx: Receiver<Request>) {
         match rx.recv().await {
             Err(why) => warn!("Dispatch loop recv failed: {}", why),
             Ok(req) => {
+                log::error!("Dispatch processing {}", req.rpc);
                 let response = match req.rpc.as_str() {
                     "open" => Some(dispatcher.open(&req).await),
                     "close" => Some(dispatcher.close(&req).await),
@@ -48,8 +49,8 @@ async fn dispatch_loop(rx: Receiver<Request>) {
                     req.response.send(response).await;
                     continue;
                 }
-                let db = match dispatcher.connections.get(&req.db_name[..]) {
-                    Some(v) => v,
+                match dispatcher.connections.get(&req.db_name[..]) {
+                    Some(tx) => tx.send(req).await,
                     None => {
                         req.response
                             .send(Err(format!("\"{}\" not open", req.db_name)))
@@ -57,6 +58,7 @@ async fn dispatch_loop(rx: Receiver<Request>) {
                         continue;
                     }
                 };
+                /*
                 match req.rpc.as_str() {
                     "has" => {
                         spawn_local(execute(Dispatcher::has, db.clone(), req));
@@ -71,26 +73,125 @@ async fn dispatch_loop(rx: Receiver<Request>) {
                         req.response.send(Err("Unsupported rpc name".into())).await;
                     }
                 };
+                */
             }
         }
     }
 }
 
-async fn execute<T, F>(func: F, store: Rc<dag::Store>, req: Request)
+async fn connection_loop(store: dag::Store, rx: Receiver<Request>) {
+    let store = Rc::new(store); // NOCOMMIT: Maybe remove?
+    let h = HashMap::new();
+    /*
+    let mut dispatcher = Dispatcher {
+        connections: HashMap::new(),
+    };
+    */
+    loop {
+        log::error!("Connection loop awaiting");
+        match rx.recv().await {
+            Err(why) => warn!("Dispatch loop recv failed: {}", why),
+            Ok(req) => match req.rpc.as_str() {
+                "has" => {
+                    spawn_local(execute(Dispatcher::has, &h, req));
+                }
+                /*
+                "get" => {
+                    spawn_local(execute(Dispatcher::get, h.clone(), req));
+                }
+                "put" => {
+                    spawn_local(execute(Dispatcher::put, &h, req));
+                }
+                */
+                "openTransaction" => {
+                    use NewOpenTransactionError::*;
+                    let dag_write = store.write().await.map_err(DagWriteError).unwrap();
+                    let write = db::Write::new_from_head("main", dag_write)
+                        .await
+                        .map_err(DBWriteError)
+                        .unwrap();
+                    //let transaction_id = TRANSACTION_COUNTER.fetch_add(1, Ordering::SeqCst);
+                    let transaction_id: u32 = 13;
+                    h.insert(transaction_id, RwLock::new(write));
+                    req.response.send(Ok("Opened transaction!".into())).await;
+                }
+                "close" => {
+                    //spawn_local(execute(Dispatcher::put, store.clone(), req));
+                    log::error!("Connection loop got close!");
+                    req.response.send(Ok("Closed!".into())).await;
+                    break;
+                }
+                _ => {
+                    req.response.send(Err("Unsupported rpc name".into())).await;
+                }
+            },
+        }
+    }
+}
+
+async fn execute<T, E, F>(func: F, txns: &HashMap<u32, RwLock<db::Write<'_>>>, req: Request)
 where
-    T: std::fmt::Debug,
-    F: for<'r, 's> AsyncFn2<&'r dag::Store, &'s str, Output = Result<String, T>>,
+    T: DeJson + TransactionRequest,
+    E: std::fmt::Debug,
+    F: for<'r, 's> AsyncFn2<&'r RwLock<db::Write<'r>>, T, Output = Result<String, E>>,
 {
+    let request: T = match DeJson::deserialize_json(&req.data) {
+        //.map_err(InvalidJson) {
+        Ok(v) => v,
+        Err(e) => {
+            req.response.send(Err(format!("InvalidJson({})", e))).await;
+            return;
+        }
+    };
+
+    //let write = match Dispatcher::open_transaction(&store).await {
+    let txn_id = request.transaction_id();
+    //let guard = txns.read().await;
+    let txn = match txns.get(&txn_id) {
+        Some(v) => v,
+        None => {
+            req.response
+                .send(Err(format!("No such transaction {}", txn_id)))
+                .await;
+            return;
+        }
+    };
+
+    /*
+    let mut write = match Dispatcher::open_transaction(&store).await {
+        Ok(v) => v,
+        Err(e) => {
+            req.response
+                .send(Err("Open transaction error".into()))
+                .await;
+            return;
+        }
+    };
+    */
+    //.map_err(OpenTransactionError)?;
+    /* NOCOMMIT
     let response = func
-        .call(&*store, &req.data)
+        .call(&txn, request)
         .await
         .map_err(|e| format!("{:?}", e));
     req.response.send(response).await;
+    */
+}
+
+trait TransactionRequest {
+    fn transaction_id(&self) -> u32;
 }
 
 #[derive(DeJson)]
 struct GetRequest {
+    transaction_id: u32,
     key: String,
+}
+
+impl TransactionRequest for GetRequest {
+    fn transaction_id(&self) -> u32 {
+        return self.transaction_id;
+    }
 }
 
 #[derive(SerJson)]
@@ -101,12 +202,19 @@ struct GetResponse {
 
 #[derive(DeJson)]
 struct PutRequest {
+    transaction_id: u32,
     key: String,
     value: String,
 }
 
+impl TransactionRequest for PutRequest {
+    fn transaction_id(&self) -> u32 {
+        return self.transaction_id;
+    }
+}
+
 struct Dispatcher {
-    connections: HashMap<String, Rc<dag::Store>>,
+    connections: HashMap<String, Sender<Request>>,
 }
 
 impl Dispatcher {
@@ -123,8 +231,12 @@ impl Dispatcher {
             }
             Ok(v) => {
                 if let Some(kv) = v {
-                    self.connections
-                        .insert(req.db_name.clone(), Rc::new(dag::Store::new(Box::new(kv))));
+                    let (tx, rx) = channel::<Request>(1);
+                    spawn_local(connection_loop(dag::Store::new(Box::new(kv)), rx));
+                    self.connections.insert(req.db_name.clone(), tx);
+
+                    //self.connections
+                    //    .insert(req.db_name.clone(), Rc::new(dag::Store::new(Box::new(kv))));
                 }
             }
         }
@@ -132,10 +244,33 @@ impl Dispatcher {
     }
 
     async fn close(&mut self, req: &Request) -> Response {
-        if !self.connections.contains_key(&req.db_name[..]) {
-            return Ok("".into());
+        log::error!("In close 1");
+        match self.connections.get(&req.db_name[..]) {
+            Some(tx) => {
+                let (tx2, rx2) = channel::<Response>(1);
+                tx.send(Request {
+                    db_name: req.db_name.clone(),
+                    rpc: "close".into(),
+                    data: "".into(),
+                    response: tx2,
+                })
+                .await;
+                match rx2.recv().await {
+                    Err(e) => {
+                        log::error!("Error response from close");
+                    }
+                    Ok(v) => {
+                        log::error!("Got response from close");
+                    }
+                };
+            }
+            None => {
+                return Ok("".into());
+            }
         }
+        log::error!("In close 2");
         self.connections.remove(&req.db_name);
+        log::error!("In close 3");
 
         Ok("".into())
     }
@@ -156,21 +291,29 @@ impl Dispatcher {
         Ok(write)
     }
 
-    async fn has(ds: &dag::Store, data: &str) -> Result<String, HasError> {
-        use HasError::*;
-        let req: GetRequest = DeJson::deserialize_json(data).map_err(InvalidJson)?;
+    async fn has(
+        txn: &RwLock<db::Write<'_>>,
+        /*txns: &RwLock<*/ req: GetRequest,
+    ) -> Result<String, HasError> {
+        //let req: GetRequest = DeJson::deserialize_json(data).map_err(InvalidJson)?;
+
+        /*
         let write = Dispatcher::open_transaction(ds)
             .await
             .map_err(OpenTransactionError)?;
+        */
+        /*
+         */
         Ok(SerJson::serialize_json(&GetResponse {
-            has: write.has(req.key.as_bytes()),
+            has: txn.read().await.has(req.key.as_bytes()),
             value: None,
         }))
     }
+    /*
 
-    async fn get(ds: &dag::Store, data: &str) -> Result<String, GetError> {
+    async fn get(txn: &RwLock<db::Write<'_>>, req: GetRequest) -> Result<String, GetError> {
         use GetError::*;
-        let req: GetRequest = DeJson::deserialize_json(data).map_err(InvalidJson)?;
+        //let req: GetRequest = DeJson::deserialize_json(data).map_err(InvalidJson)?;
 
         #[cfg(not(default))] // Not enabled in production.
         if req.key.starts_with("sleep") {
@@ -183,10 +326,12 @@ impl Dispatcher {
             }
         }
 
+        /*
         let write = Dispatcher::open_transaction(ds)
             .await
             .map_err(OpenTransactionError)?;
-        let got = write.get(req.key.as_bytes());
+        */
+        let got = txn.read().await.get(req.key.as_bytes());
         let got = got.map(|buf| String::from_utf8(buf.to_vec()));
         if let Some(Err(e)) = got {
             return Err(InvalidUtf8(e));
@@ -197,26 +342,30 @@ impl Dispatcher {
             value: got,
         }))
     }
+    */
 
-    async fn put(ds: &dag::Store, data: &str) -> Result<String, PutError> {
-        use PutError::*;
-        let req: PutRequest = DeJson::deserialize_json(data).map_err(InvalidJson)?;
+    async fn put(txn: &RwLock<db::Write<'_>>, req: PutRequest) -> Result<String, PutError> {
+        //use PutError::*;
+        /*let req: PutRequest = DeJson::deserialize_json(data).map_err(InvalidJson)?;
         let mut write = Dispatcher::open_transaction(ds)
             .await
             .map_err(OpenTransactionError)?;
-        write.put(req.key.as_bytes().to_vec(), req.value.into_bytes());
-        write
-            .commit(
-                "main",
-                "local-create-date",
-                "checksum",
-                42,
-                "foo",
-                b"bar",
-                None,
-            )
+        */
+        txn.write()
             .await
-            .map_err(CommitError)?;
+            .put(req.key.as_bytes().to_vec(), req.value.into_bytes());
+        /*
+        txn.commit(
+            "main",
+            "local-create-date",
+            "checksum",
+            42,
+            "foo",
+            b"bar",
+            None,
+        )
+        .await
+        .map_err(CommitError)?;*/
         Ok("{}".into())
     }
 
@@ -267,4 +416,14 @@ enum PutError {
     InvalidJson(DeJsonErr),
     OpenTransactionError(OpenTransactionError),
     CommitError(db::CommitError),
+}
+
+#[derive(Debug)]
+enum NewOpenTransactionError {
+    // NOCOMMIT
+    InvalidJson(DeJsonErr),
+    DagWriteError(dag::Error),
+    DBWriteError(db::NewError),
+    //OpenTransactionError(OpenTransactionError),
+    //CommitError(db::CommitError),
 }
