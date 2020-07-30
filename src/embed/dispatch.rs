@@ -4,11 +4,11 @@ use crate::dag;
 use crate::db;
 use crate::kv::idbstore::IdbStore;
 use async_fn::AsyncFn2;
-use async_std::sync::{channel, Receiver, RwLock, Sender};
+use async_std::sync::{channel, Receiver, Sender};
 use log::warn;
-use nanoserde::{DeJson, DeJsonErr, SerJson};
+use nanoserde::{DeJson, SerJson};
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 use wasm_bindgen_futures::spawn_local;
 
@@ -27,6 +27,7 @@ lazy_static! {
         spawn_local(dispatch_loop(rx));
         Mutex::new(tx)
     };
+    static ref TRANSACTION_COUNTER: AtomicU32 = AtomicU32::new(0);
 }
 
 async fn dispatch_loop(rx: Receiver<Request>) {
@@ -38,7 +39,6 @@ async fn dispatch_loop(rx: Receiver<Request>) {
         match rx.recv().await {
             Err(why) => warn!("Dispatch loop recv failed: {}", why),
             Ok(req) => {
-                log::error!("Dispatch processing {}", req.rpc);
                 let response = match req.rpc.as_str() {
                     "open" => Some(dispatcher.open(&req).await),
                     "close" => Some(dispatcher.close(&req).await),
@@ -58,66 +58,39 @@ async fn dispatch_loop(rx: Receiver<Request>) {
                         continue;
                     }
                 };
-                /*
-                match req.rpc.as_str() {
-                    "has" => {
-                        spawn_local(execute(Dispatcher::has, db.clone(), req));
-                    }
-                    "get" => {
-                        spawn_local(execute(Dispatcher::get, db.clone(), req));
-                    }
-                    "put" => {
-                        spawn_local(execute(Dispatcher::put, db.clone(), req));
-                    }
-                    _ => {
-                        req.response.send(Err("Unsupported rpc name".into())).await;
-                    }
-                };
-                */
             }
         }
     }
 }
 
 async fn connection_loop(store: dag::Store, rx: Receiver<Request>) {
-    let store = Rc::new(store); // NOCOMMIT: Maybe remove?
-    let h = HashMap::new();
-    /*
-    let mut dispatcher = Dispatcher {
-        connections: HashMap::new(),
-    };
-    */
+    let mut h = HashMap::new();
+
     loop {
-        log::error!("Connection loop awaiting");
         match rx.recv().await {
             Err(why) => warn!("Dispatch loop recv failed: {}", why),
             Ok(req) => match req.rpc.as_str() {
                 "has" => {
-                    spawn_local(execute(Dispatcher::has, &h, req));
+                    execute(Dispatcher::has, &mut h, req).await;
                 }
-                /*
                 "get" => {
-                    spawn_local(execute(Dispatcher::get, h.clone(), req));
+                    execute(Dispatcher::get, &mut h, req).await;
                 }
                 "put" => {
-                    spawn_local(execute(Dispatcher::put, &h, req));
+                    execute(Dispatcher::put, &mut h, req).await;
                 }
-                */
                 "openTransaction" => {
-                    use NewOpenTransactionError::*;
+                    use OpenTransactionError::*;
                     let dag_write = store.write().await.map_err(DagWriteError).unwrap();
                     let write = db::Write::new_from_head("main", dag_write)
                         .await
                         .map_err(DBWriteError)
                         .unwrap();
-                    //let transaction_id = TRANSACTION_COUNTER.fetch_add(1, Ordering::SeqCst);
-                    let transaction_id: u32 = 13;
-                    h.insert(transaction_id, RwLock::new(write));
+                    let transaction_id = TRANSACTION_COUNTER.fetch_add(1, Ordering::SeqCst);
+                    h.insert(transaction_id, write);
                     req.response.send(Ok("Opened transaction!".into())).await;
                 }
                 "close" => {
-                    //spawn_local(execute(Dispatcher::put, store.clone(), req));
-                    log::error!("Connection loop got close!");
                     req.response.send(Ok("Closed!".into())).await;
                     break;
                 }
@@ -129,14 +102,13 @@ async fn connection_loop(store: dag::Store, rx: Receiver<Request>) {
     }
 }
 
-async fn execute<T, E, F>(func: F, txns: &HashMap<u32, RwLock<db::Write<'_>>>, req: Request)
+async fn execute<T, E, F>(func: F, txns: &mut HashMap<u32, db::Write<'_>>, req: Request)
 where
     T: DeJson + TransactionRequest,
     E: std::fmt::Debug,
-    F: for<'r, 's> AsyncFn2<&'r RwLock<db::Write<'r>>, T, Output = Result<String, E>>,
+    F: for<'r> AsyncFn2<&'r mut db::Write<'r>, T, Output = Result<String, E>>,
 {
     let request: T = match DeJson::deserialize_json(&req.data) {
-        //.map_err(InvalidJson) {
         Ok(v) => v,
         Err(e) => {
             req.response.send(Err(format!("InvalidJson({})", e))).await;
@@ -144,10 +116,8 @@ where
         }
     };
 
-    //let write = match Dispatcher::open_transaction(&store).await {
     let txn_id = request.transaction_id();
-    //let guard = txns.read().await;
-    let txn = match txns.get(&txn_id) {
+    let mut txn = match txns.get_mut(&txn_id) {
         Some(v) => v,
         None => {
             req.response
@@ -157,25 +127,11 @@ where
         }
     };
 
-    /*
-    let mut write = match Dispatcher::open_transaction(&store).await {
-        Ok(v) => v,
-        Err(e) => {
-            req.response
-                .send(Err("Open transaction error".into()))
-                .await;
-            return;
-        }
-    };
-    */
-    //.map_err(OpenTransactionError)?;
-    /* NOCOMMIT
     let response = func
-        .call(&txn, request)
+        .call(&mut txn, request)
         .await
         .map_err(|e| format!("{:?}", e));
     req.response.send(response).await;
-    */
 }
 
 trait TransactionRequest {
@@ -234,9 +190,6 @@ impl Dispatcher {
                     let (tx, rx) = channel::<Request>(1);
                     spawn_local(connection_loop(dag::Store::new(Box::new(kv)), rx));
                     self.connections.insert(req.db_name.clone(), tx);
-
-                    //self.connections
-                    //    .insert(req.db_name.clone(), Rc::new(dag::Store::new(Box::new(kv))));
                 }
             }
         }
@@ -244,7 +197,6 @@ impl Dispatcher {
     }
 
     async fn close(&mut self, req: &Request) -> Response {
-        log::error!("In close 1");
         match self.connections.get(&req.db_name[..]) {
             Some(tx) => {
                 let (tx2, rx2) = channel::<Response>(1);
@@ -256,10 +208,12 @@ impl Dispatcher {
                 })
                 .await;
                 match rx2.recv().await {
-                    Err(e) => {
+                    Err(_e) => {
+                        // NOCOMMIT
                         log::error!("Error response from close");
                     }
-                    Ok(v) => {
+                    Ok(_v) => {
+                        // NOCOMMIT
                         log::error!("Got response from close");
                     }
                 };
@@ -268,52 +222,19 @@ impl Dispatcher {
                 return Ok("".into());
             }
         }
-        log::error!("In close 2");
         self.connections.remove(&req.db_name);
-        log::error!("In close 3");
-
         Ok("".into())
     }
 
-    // TODO: Everything around databases and transaction management needs thought:
-    // - We need to actually implement the transactions
-    // - Should there be an err, DB, type in the in the db package, or should we continue to construct them on each tx? If so, it could do some of below.
-    // - We will def need some kind of "connection" struct, analagous to the corresponding one in Go, that keeps track of the transactions by ID
-    // - read/get need to use read txs
-    async fn open_transaction<'a>(
-        ds: &'_ dag::Store,
-    ) -> Result<db::Write<'_>, OpenTransactionError> {
-        use OpenTransactionError::*;
-        let dag_write = ds.write().await.map_err(DagWriteError)?;
-        let write = db::Write::new_from_head("main", dag_write)
-            .await
-            .map_err(DBWriteError)?;
-        Ok(write)
-    }
-
-    async fn has(
-        txn: &RwLock<db::Write<'_>>,
-        /*txns: &RwLock<*/ req: GetRequest,
-    ) -> Result<String, HasError> {
-        //let req: GetRequest = DeJson::deserialize_json(data).map_err(InvalidJson)?;
-
-        /*
-        let write = Dispatcher::open_transaction(ds)
-            .await
-            .map_err(OpenTransactionError)?;
-        */
-        /*
-         */
+    async fn has(txn: &mut db::Write<'_>, req: GetRequest) -> Result<String, HasError> {
         Ok(SerJson::serialize_json(&GetResponse {
-            has: txn.read().await.has(req.key.as_bytes()),
+            has: txn.has(req.key.as_bytes()),
             value: None,
         }))
     }
-    /*
 
-    async fn get(txn: &RwLock<db::Write<'_>>, req: GetRequest) -> Result<String, GetError> {
+    async fn get(txn: &mut db::Write<'_>, req: GetRequest) -> Result<String, GetError> {
         use GetError::*;
-        //let req: GetRequest = DeJson::deserialize_json(data).map_err(InvalidJson)?;
 
         #[cfg(not(default))] // Not enabled in production.
         if req.key.starts_with("sleep") {
@@ -326,12 +247,7 @@ impl Dispatcher {
             }
         }
 
-        /*
-        let write = Dispatcher::open_transaction(ds)
-            .await
-            .map_err(OpenTransactionError)?;
-        */
-        let got = txn.read().await.get(req.key.as_bytes());
+        let got = txn.get(req.key.as_bytes());
         let got = got.map(|buf| String::from_utf8(buf.to_vec()));
         if let Some(Err(e)) = got {
             return Err(InvalidUtf8(e));
@@ -342,18 +258,9 @@ impl Dispatcher {
             value: got,
         }))
     }
-    */
 
-    async fn put(txn: &RwLock<db::Write<'_>>, req: PutRequest) -> Result<String, PutError> {
-        //use PutError::*;
-        /*let req: PutRequest = DeJson::deserialize_json(data).map_err(InvalidJson)?;
-        let mut write = Dispatcher::open_transaction(ds)
-            .await
-            .map_err(OpenTransactionError)?;
-        */
-        txn.write()
-            .await
-            .put(req.key.as_bytes().to_vec(), req.value.into_bytes());
+    async fn put(txn: &mut db::Write<'_>, req: PutRequest) -> Result<String, PutError> {
+        txn.put(req.key.as_bytes().to_vec(), req.value.into_bytes());
         /*
         txn.commit(
             "main",
@@ -400,30 +307,20 @@ enum OpenTransactionError {
     DagWriteError(dag::Error),
     DBWriteError(db::NewError),
 }
+
 #[derive(Debug)]
-enum HasError {
-    InvalidJson(DeJsonErr),
-    OpenTransactionError(OpenTransactionError),
-}
+enum HasError {}
+
 #[derive(Debug)]
 enum GetError {
-    InvalidJson(DeJsonErr),
-    OpenTransactionError(OpenTransactionError),
     InvalidUtf8(std::string::FromUtf8Error),
-}
-#[derive(Debug)]
-enum PutError {
-    InvalidJson(DeJsonErr),
-    OpenTransactionError(OpenTransactionError),
-    CommitError(db::CommitError),
 }
 
 #[derive(Debug)]
-enum NewOpenTransactionError {
-    // NOCOMMIT
-    InvalidJson(DeJsonErr),
-    DagWriteError(dag::Error),
-    DBWriteError(db::NewError),
-    //OpenTransactionError(OpenTransactionError),
-    //CommitError(db::CommitError),
+enum PutError {}
+
+#[allow(dead_code)]
+#[derive(Debug)]
+enum CommitError {
+    CommitError(db::CommitError),
 }
