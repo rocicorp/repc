@@ -1,4 +1,5 @@
 use futures::join;
+use replicache_client::experimental::simple;
 use replicache_client::wasm;
 use wasm_bindgen_test::wasm_bindgen_test_configure;
 use wasm_bindgen_test::*;
@@ -15,6 +16,12 @@ async fn dispatch(db: &str, rpc: &str, data: &str) -> Result<String, String> {
         Ok(v) => Ok(v),
         Err(v) => Err(v.as_string().unwrap()),
     }
+}
+
+#[wasm_bindgen_test]
+async fn test_simple_dispatch() {
+    assert_eq!(simple::dispatch("db".to_string(), "open".to_string()).await, "");
+    assert_eq!(simple::dispatch("db".to_string(), "close".to_string()).await, "");
 }
 
 #[wasm_bindgen_test]

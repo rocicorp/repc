@@ -9,6 +9,7 @@ mod dag;
 mod db;
 mod embed;
 mod hash;
+pub mod experimental;
 
 #[cfg(not(default))]
 pub mod kv;
