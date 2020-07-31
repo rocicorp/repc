@@ -1,4 +1,5 @@
 use futures::join;
+use replicache_client::experimental::queue;
 use replicache_client::wasm;
 use wasm_bindgen_test::wasm_bindgen_test_configure;
 use wasm_bindgen_test::*;
@@ -16,6 +17,43 @@ async fn dispatch(db: &str, rpc: &str, data: &str) -> Result<String, String> {
         Err(v) => Err(v.as_string().unwrap()),
     }
 }
+
+#[wasm_bindgen_test]
+async fn test_toy_queue_dispatch() {
+    assert_eq!(
+        queue::dispatch("db".to_string(), "open".to_string(), "".into(), false, "".into()).await,
+        "ok"
+    );
+    assert_eq!(
+        queue::dispatch("db".to_string(), "get".to_string(), "some key".into(), true, "0".into()).await,
+        "no such key"
+    );
+    assert_eq!(
+        queue::dispatch("db".to_string(), "open_transaction".to_string(), "".into(), false, "".into()).await,
+        "0" // <-- tx id returned
+    );
+    assert_eq!(
+        queue::dispatch("db".to_string(), "put".to_string(), "some key".into(), true, "0".into()).await,
+        "ok"
+    );
+    assert_eq!(
+        queue::dispatch("db".to_string(), "get".to_string(), "some key".into(), true, "0".into()).await,
+        "true"
+    ); 
+    assert_eq!(
+        queue::dispatch("db".to_string(), "commit".to_string(), "".into(), false, "0".into()).await,
+        "ok"
+    );
+    assert_eq!(
+        queue::dispatch("db".to_string(), "get".to_string(), "some key".into(), true, "".into()).await,
+        "true"
+    ); 
+    assert_eq!(
+        queue::dispatch("db".to_string(), "close".to_string(), "".into(), false, "".into()).await,
+        "ok"
+    );
+}
+
 
 #[wasm_bindgen_test]
 async fn test_dispatch() {
