@@ -20,8 +20,14 @@ async fn dispatch(db: &str, rpc: &str, data: &str) -> Result<String, String> {
 
 #[wasm_bindgen_test]
 async fn test_simple_dispatch() {
-    assert_eq!(simple::dispatch("db".to_string(), "open".to_string()).await.unwrap(), "");
-    assert_eq!(simple::dispatch("db".to_string(), "close".to_string()).await.unwrap(), "");
+    assert_eq!(
+        simple::dispatch("db".to_string(), "open".to_string()).await,
+        ""
+    );
+    assert_eq!(
+        simple::dispatch("db".to_string(), "close".to_string()).await,
+        ""
+    );
 }
 
 #[wasm_bindgen_test]
