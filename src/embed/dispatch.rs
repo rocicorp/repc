@@ -27,7 +27,7 @@ lazy_static! {
         spawn_local(dispatch_loop(rx));
         Mutex::new(tx)
     };
-    static ref TRANSACTION_COUNTER: AtomicU32 = AtomicU32::new(0);
+    static ref TRANSACTION_COUNTER: AtomicU32 = AtomicU32::new(1);
 }
 
 async fn dispatch_loop(rx: Receiver<Request>) {
@@ -88,7 +88,11 @@ async fn connection_loop(store: dag::Store, rx: Receiver<Request>) {
                         .unwrap();
                     let transaction_id = TRANSACTION_COUNTER.fetch_add(1, Ordering::SeqCst);
                     h.insert(transaction_id, write);
-                    req.response.send(Ok("Opened transaction!".into())).await;
+                    req.response
+                        .send(Ok(SerJson::serialize_json(&OpenTransactionResponse {
+                            transaction_id: transaction_id,
+                        })))
+                        .await;
                 }
                 "close" => {
                     req.response.send(Ok("Closed!".into())).await;
@@ -106,7 +110,7 @@ async fn execute<T, E, F>(func: F, txns: &mut HashMap<u32, db::Write<'_>>, req: 
 where
     T: DeJson + TransactionRequest,
     E: std::fmt::Debug,
-    F: for<'r> AsyncFn2<&'r mut db::Write<'r>, T, Output = Result<String, E>>,
+    F: for<'r, 's> AsyncFn2<&'r mut db::Write<'s>, T, Output = Result<String, E>>,
 {
     let request: T = match DeJson::deserialize_json(&req.data) {
         Ok(v) => v,
@@ -138,8 +142,15 @@ trait TransactionRequest {
     fn transaction_id(&self) -> u32;
 }
 
+#[derive(SerJson)]
+struct OpenTransactionResponse {
+    #[nserde(rename = "transactionId")]
+    transaction_id: u32,
+}
+
 #[derive(DeJson)]
 struct GetRequest {
+    #[nserde(rename = "transactionId")]
     transaction_id: u32,
     key: String,
 }
@@ -158,6 +169,7 @@ struct GetResponse {
 
 #[derive(DeJson)]
 struct PutRequest {
+    #[nserde(rename = "transactionId")]
     transaction_id: u32,
     key: String,
     value: String,
