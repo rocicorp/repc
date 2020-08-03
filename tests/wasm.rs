@@ -1,5 +1,8 @@
+use async_std::future::Future;
+use async_std::task;
 use futures::join;
 use replicache_client::wasm;
+use std::time::Duration;
 use wasm_bindgen_test::wasm_bindgen_test_configure;
 use wasm_bindgen_test::*;
 
@@ -128,4 +131,36 @@ async fn test_get_put() {
     );
 
     assert_eq!(dispatch("db", "close", "").await.unwrap(), "");
+}
+
+#[wasm_bindgen_test]
+async fn test_unordered_future() {
+    use futures::stream::futures_unordered::FuturesUnordered;
+    use futures::stream::StreamExt;
+    use js_sys::Date;
+
+    async fn hello() {
+        task::sleep(Duration::from_secs(1)).await;
+    }
+
+    let mut stream = FuturesUnordered::new();
+    stream.push(hello());
+    stream.push(hello());
+    stream.push(hello());
+    stream.push(hello());
+    stream.push(hello());
+
+    let t0 = Date::now();
+
+    // Surprised that this returns, but I guess that's the
+    // diff between Stream and FusedStream. So this means that
+    // some higher level thing that is using FusedStream must
+    // manage the existence of this stream and create a new one
+    // when a new message comes in.
+    stream.into_future().await;
+
+    let t1 = Date::now();
+
+    assert!(t1 - t0 >= 1000.0);
+    assert!(t1 - t0 < 2000.0);
 }
