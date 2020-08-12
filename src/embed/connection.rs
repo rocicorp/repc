@@ -273,19 +273,12 @@ async fn do_put(txn: &RwLock<Transaction<'_>>, req: PutRequest) -> Result<PutRes
     Ok(PutResponse {})
 }
 
-// This fn forwards to sync::begin_sync at this point. execute() requires its
-// do_ers to take txns even if they don't need it so this fn also helps begin_sync
-// have a simpler signature.
 async fn do_begin_sync<'a, 'b>(
     _: &'a dag::Store,
     _: &'b TxnMap<'a>,
     req: BeginSyncRequest,
 ) -> Result<BeginSyncResponse, sync::BeginSyncError> {
-    // TODO We would like to have an http client per connection loop ("process()")
-    // but there is no mechanism to pass one through execute() to this function.
-    // Instead of creating a new one each call like we do now, we should keep one
-    // persistently, either via lazy static or replacing execute with an invocation
-    // mechanism that enables variability of do_ function signatures.
+    // TODO move client up to process() or into a lazy static so we can re-use.
     let hyper_client_owned: hyper::Client<hyper::client::HttpConnector>;
     let mut hyper_client_option = None;
     if !sync::USE_BROWSER_FETCH {
