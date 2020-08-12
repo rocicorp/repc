@@ -142,7 +142,6 @@ pub enum FetchError {
 
 // Note: browser_fetch manually tested in tests/wasm.rs.
 #[cfg(test)]
-#[cfg(default)]
 mod tests {
     use super::*;
     use httptest::{matchers::*, Expectation, Server};
