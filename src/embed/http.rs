@@ -216,9 +216,8 @@ mod tests {
             // Is there a simpler way to write this?
             match &c.exp_error {
                 None => {
-                    if let Err(e) = resp {
+                    if let Err(e) = &resp {
                         assert!(false, "expected no error, got {:?}", e);
-                        continue;
                     }
                     let got = resp.unwrap();
                     assert_eq!(c.exp_status, got.status());
@@ -227,7 +226,6 @@ mod tests {
                 Some(e) => {
                     if let Ok(_) = resp {
                         assert!(false, "expected {:?}, got Ok", e);
-                        continue;
                     }
                 }
             }
