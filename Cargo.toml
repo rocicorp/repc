@@ -12,24 +12,28 @@ benchmark = []
 async-fn = { path = "crates/async-fn" }
 async-std = { version = "=1.6.0", features = ["unstable"] }
 async-trait = "0.1.36"
+bytes = "0.5.6"
 console_log = { version = "0.2" }
 console_error_panic_hook = { version = "0.1.1", optional = true }
 data-encoding = "1.1.1"
 flatbuffers = "0.6.1"
 futures = "0.3.5"
 http = "0.2.1"
+# hyper implies tokio below. Should be dead-code-removed in wasm.
+hyper = "0.13"
 js-sys = "0.3.40"
 lazy_static = "1.4.0"
 log = "0.4"
 nanoserde = "0.1.18"
 sha2 = "0.8.1"
+tokio = { version = "0.2", features = ["full"] } # For hyper.
 wasm-bindgen = { version = "0.2"  }
 wasm-bindgen-futures = "0.4.13"
 wee_alloc = "0.4.5"
 
-
 [dev-dependencies]
 async-std = { version = "=1.6.0", features = ["attributes", "unstable"] }
+httptest = "0.13.1"
 rand = { version = "0.7.3", features = ["wasm-bindgen"] }
 wasm-bench = { path = "crates/bench" }
 wasm-bindgen-test = "0.3.0"
