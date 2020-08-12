@@ -1,5 +1,4 @@
 use std::convert::TryFrom;
-use std::panic;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
@@ -19,7 +18,6 @@ fn s<D: std::fmt::Debug>(err: D) -> String {
 // TODO timeout/abort
 // TODO log req/resp
 // TODO understand what if any tokio runtime assumptions are implied here
-#[cfg(default)]
 pub async fn rust_fetch(
     hyper_client: &hyper::Client<hyper::client::HttpConnector>,
     http_req: http::Request<String>,
@@ -57,14 +55,6 @@ pub async fn rust_fetch(
     Ok(http_resp)
 }
 
-#[cfg(not(default))]
-pub async fn rust_fetch(
-    _: &hyper::Client<hyper::client::HttpConnector>,
-    _: http::Request<String>,
-) -> Result<http::Response<String>, FetchError> {
-    panic!("can't call in wasm");
-}
-
 // js makes browser_fetch map_err calls nicer by converting opaque JsValue errors
 // into js_sys::Error's and debug-printing their content.
 fn js(err: JsValue) -> String {
@@ -84,7 +74,6 @@ fn js(err: JsValue) -> String {
 //
 // TODO timeout/abort
 // TODO log request/response
-#[cfg(not(default))]
 pub async fn browser_fetch(
     http_req: http::Request<String>,
 ) -> Result<http::Response<String>, FetchError> {
@@ -132,11 +121,6 @@ pub async fn browser_fetch(
         .body(resp_body)
         .map_err(|e| FetchError::FailedToWrapHttpResponse(s(e)))?;
     Ok(http_resp)
-}
-
-#[cfg(default)]
-pub async fn browser_fetch(_: http::Request<String>) -> Result<http::Response<String>, FetchError> {
-    panic!("can't call unless in wasm");
 }
 
 // FetchErrors are returned by both the rust and browser versions of fetch. Since
