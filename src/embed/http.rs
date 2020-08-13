@@ -1,12 +1,12 @@
-use std::convert::TryFrom;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{RequestInit, RequestMode};
 
-// s makes map_err calls nicer by mapping a error to its debug-printed string.
-fn s<D: std::fmt::Debug>(err: D) -> String {
-    format!("{:?}", err)
+macro_rules! box_err {
+    ($ex:expr, $variant:ident) => {
+        $ex.map_err(|e| $variant(Box::new(e)))
+    };
 }
 
 // rust_fetch fetches using a rust (as opposed to browser Fetch) http client.
@@ -28,39 +28,30 @@ pub async fn rust_fetch(
         .method(parts.method.as_str())
         .uri(&parts.uri.to_string());
     for (k, v) in parts.headers.iter() {
-        builder = builder.header(
-            k,
-            v.to_str().map_err(|e| InvalidRequestHeader(Box::new(e)))?,
-        );
+        builder = builder.header(k, box_err!(v.to_str(), InvalidRequestHeader)?);
     }
-    let hyper_req = builder
-        .body(hyper::Body::from(req_body))
-        .map_err(|e| InvalidRequestBody(s(e)))?;
+    let hyper_req = box_err!(
+        builder.body(hyper::Body::from(req_body)),
+        InvalidRequestBody
+    )?;
 
-    let mut hyper_resp = hyper_client
-        .request(hyper_req)
-        .await
-        .map_err(|e| RequestFailed(s(e)))?;
+    let mut hyper_resp = box_err!(hyper_client.request(hyper_req).await, RequestFailed)?;
     let http_resp_builder = http::response::Builder::new();
-    let http_resp_bytes = hyper::body::to_bytes(hyper_resp.body_mut())
-        .await
-        .map_err(|e| ErrorReadingResponseBody(s(e)))?;
-    let http_resp_string = String::from_utf8(http_resp_bytes.to_vec()) // Copies :(
-        .map_err(|e| ErrorReadingResponseBodyAsString(s(e)))?;
-    let http_resp = http_resp_builder
-        .status(hyper_resp.status())
-        .body(http_resp_string)
-        .map_err(|e| FailedToWrapHttpResponse(s(e)))?;
+    let http_resp_bytes = box_err!(
+        hyper::body::to_bytes(hyper_resp.body_mut()).await,
+        ErrorReadingResponseBody
+    )?;
+    let http_resp_string = box_err!(
+        String::from_utf8(http_resp_bytes.to_vec()),
+        ErrorReadingResponseBodyAsString
+    )?; // Copies :(
+    let http_resp = box_err!(
+        http_resp_builder
+            .status(hyper_resp.status())
+            .body(http_resp_string),
+        FailedToWrapHttpResponse
+    )?;
     Ok(http_resp)
-}
-
-// js makes browser_fetch map_err calls nicer by converting opaque JsValue errors
-// into js_sys::Error's and debug-printing their content.
-fn js(err: JsValue) -> String {
-    match js_sys::Error::try_from(err) {
-        Ok(e) => s(e),
-        Err(_) => "unknown JS error: could not conver to js_sys::Error".to_string(),
-    }
 }
 
 // browser_fetch makes and HTTP request over the network via the browser's Fetch API.
@@ -76,49 +67,43 @@ fn js(err: JsValue) -> String {
 pub async fn browser_fetch(
     http_req: http::Request<String>,
 ) -> Result<http::Response<String>, FetchError> {
+    use FetchError::*;
     let mut opts = RequestInit::new();
     opts.method(http_req.method().as_str());
     opts.mode(RequestMode::Cors);
     let js_body = JsValue::from_str(http_req.body());
     opts.body(Some(&js_body));
-    let web_sys_req = web_sys::Request::new_with_str_and_init(&http_req.uri().to_string(), &opts)
-        .map_err(|e| FetchError::UnableToCreateRequest(js(e)))?;
+    let web_sys_req = box_err!(
+        web_sys::Request::new_with_str_and_init(&http_req.uri().to_string(), &opts),
+        UnableToCreateRequest
+    )?;
     let h = web_sys_req.headers();
     for (k, v) in http_req.headers().iter() {
-        h.set(
-            k.as_ref(),
-            v.to_str()
-                .map_err(|e| FetchError::InvalidRequestHeader(Box::new(e)))?,
-        )
-        .map_err(|e| FetchError::UnableToSetRequestHeader(s(e)))?;
+        box_err!(
+            h.set(k.as_ref(), box_err!(v.to_str(), InvalidRequestHeader)?),
+            UnableToSetRequestHeader
+        )?;
     }
 
-    let window = web_sys::window().ok_or_else(|| FetchError::NoWindow)?;
+    let window = web_sys::window().ok_or_else(|| NoWindow)?;
     let http_req_promise = window.fetch_with_request(&web_sys_req);
     let http_req_future = JsFuture::from(http_req_promise);
-    let js_web_sys_resp = http_req_future
-        .await
-        .map_err(|e| FetchError::RequestFailed(js(e)))?;
+    let js_web_sys_resp = box_err!(http_req_future.await, RequestFailed)?;
     if !js_web_sys_resp.is_instance_of::<web_sys::Response>() {
-        return Err(FetchError::InvalidResponseFromJS);
+        return Err(InvalidResponseFromJS);
     }
     let web_sys_resp: web_sys::Response = js_web_sys_resp.dyn_into().unwrap();
-    let body_js_value = JsFuture::from(
-        web_sys_resp
-            .text()
-            .map_err(|e| FetchError::ErrorReadingResponseBodyAsString(js(e)))?,
-    )
-    .await
-    .map_err(|e| FetchError::ErrorReadingResponseBody(js(e)))?;
+    let body_js_value = box_err!(web_sys_resp.text(), ErrorReadingResponseBodyAsString)?;
+    //.await;
     let resp_body = body_js_value
         .as_string()
-        .ok_or_else(|| FetchError::ErrorReadingResponseBodyAsString("".to_string()))?;
+        .ok_or_else(|| ErrorReadingResponseBodyAsString(Box::new("".to_string())))?;
 
     let builder = http::response::Builder::new();
-    let http_resp = builder
-        .status(web_sys_resp.status())
-        .body(resp_body)
-        .map_err(|e| FetchError::FailedToWrapHttpResponse(s(e)))?;
+    let http_resp = box_err!(
+        builder.status(web_sys_resp.status()).body(resp_body),
+        FailedToWrapHttpResponse
+    )?;
     Ok(http_resp)
 }
 
@@ -127,16 +112,16 @@ pub async fn browser_fetch(
 // FetchError is lossy of the error types underneath: it holds an error string.
 #[derive(Debug)]
 pub enum FetchError {
-    ErrorReadingResponseBodyAsString(String),
-    ErrorReadingResponseBody(String),
-    FailedToWrapHttpResponse(String),
-    InvalidRequestBody(String),
-    InvalidRequestHeader(Box<dyn std::error::Error>),
+    ErrorReadingResponseBodyAsString(Box<dyn std::fmt::Debug>),
+    ErrorReadingResponseBody(Box<dyn std::fmt::Debug>),
+    FailedToWrapHttpResponse(Box<dyn std::fmt::Debug>),
+    InvalidRequestBody(Box<dyn std::fmt::Debug>),
+    InvalidRequestHeader(Box<dyn std::fmt::Debug>),
     InvalidResponseFromJS,
     NoWindow,
-    RequestFailed(String),
-    UnableToCreateRequest(String),
-    UnableToSetRequestHeader(String),
+    RequestFailed(Box<dyn std::fmt::Debug>),
+    UnableToCreateRequest(Box<dyn std::fmt::Debug>),
+    UnableToSetRequestHeader(Box<dyn std::fmt::Debug>),
 }
 
 // Note: browser_fetch manually tested in tests/wasm.rs.
