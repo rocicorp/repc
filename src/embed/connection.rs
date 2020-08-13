@@ -3,6 +3,7 @@ use super::sync;
 use super::types::*;
 use crate::dag;
 use crate::db;
+use crate::fetch;
 use async_fn::{AsyncFn2, AsyncFn3};
 use async_std::stream::StreamExt;
 use async_std::sync::{Receiver, RecvError, RwLock};
@@ -279,11 +280,8 @@ async fn do_begin_sync<'a, 'b>(
     req: BeginSyncRequest,
 ) -> Result<BeginSyncResponse, sync::BeginSyncError> {
     // TODO move client up to process() or into a lazy static so we can re-use.
-    let hyper_client = match sync::USE_BROWSER_FETCH {
-        false => None,
-        true => Some(hyper::Client::new()),
-    };
-    let begin_sync_response = sync::begin_sync(hyper_client.as_ref(), &req).await?;
+    let fetch_client = fetch::client::Client::new();
+    let begin_sync_response = sync::begin_sync(&fetch_client, &req).await?;
     Ok(begin_sync_response)
 }
 
