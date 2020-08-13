@@ -76,49 +76,50 @@ fn js(err: JsValue) -> String {
 pub async fn browser_fetch(
     http_req: http::Request<String>,
 ) -> Result<http::Response<String>, FetchError> {
+    use FetchError::*;
     let mut opts = RequestInit::new();
     opts.method(http_req.method().as_str());
     opts.mode(RequestMode::Cors);
     let js_body = JsValue::from_str(http_req.body());
     opts.body(Some(&js_body));
     let web_sys_req = web_sys::Request::new_with_str_and_init(&http_req.uri().to_string(), &opts)
-        .map_err(|e| FetchError::UnableToCreateRequest(js(e)))?;
+        .map_err(|e| UnableToCreateRequest(js(e)))?;
     let h = web_sys_req.headers();
     for (k, v) in http_req.headers().iter() {
         h.set(
             k.as_ref(),
             v.to_str()
-                .map_err(|e| FetchError::InvalidRequestHeader(Box::new(e)))?,
+                .map_err(|e| InvalidRequestHeader(Box::new(e)))?,
         )
-        .map_err(|e| FetchError::UnableToSetRequestHeader(s(e)))?;
+        .map_err(|e| UnableToSetRequestHeader(s(e)))?;
     }
 
-    let window = web_sys::window().ok_or_else(|| FetchError::NoWindow)?;
+    let window = web_sys::window().ok_or_else(|| NoWindow)?;
     let http_req_promise = window.fetch_with_request(&web_sys_req);
     let http_req_future = JsFuture::from(http_req_promise);
     let js_web_sys_resp = http_req_future
         .await
-        .map_err(|e| FetchError::RequestFailed(js(e)))?;
+        .map_err(|e| RequestFailed(js(e)))?;
     if !js_web_sys_resp.is_instance_of::<web_sys::Response>() {
-        return Err(FetchError::InvalidResponseFromJS);
+        return Err(InvalidResponseFromJS);
     }
     let web_sys_resp: web_sys::Response = js_web_sys_resp.dyn_into().unwrap();
     let body_js_value = JsFuture::from(
         web_sys_resp
             .text()
-            .map_err(|e| FetchError::ErrorReadingResponseBodyAsString(js(e)))?,
+            .map_err(|e| ErrorReadingResponseBodyAsString(js(e)))?,
     )
     .await
-    .map_err(|e| FetchError::ErrorReadingResponseBody(js(e)))?;
+    .map_err(|e| ErrorReadingResponseBody(js(e)))?;
     let resp_body = body_js_value
         .as_string()
-        .ok_or_else(|| FetchError::ErrorReadingResponseBodyAsString("".to_string()))?;
+        .ok_or_else(|| ErrorReadingResponseBodyAsString("".to_string()))?;
 
     let builder = http::response::Builder::new();
     let http_resp = builder
         .status(web_sys_resp.status())
         .body(resp_body)
-        .map_err(|e| FetchError::FailedToWrapHttpResponse(s(e)))?;
+        .map_err(|e| FailedToWrapHttpResponse(s(e)))?;
     Ok(http_resp)
 }
 
