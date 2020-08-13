@@ -22,6 +22,7 @@ pub async fn rust_fetch(
     hyper_client: &hyper::Client<hyper::client::HttpConnector>,
     http_req: http::Request<String>,
 ) -> Result<http::Response<String>, FetchError> {
+    use FetchError::*;
     let (parts, req_body) = http_req.into_parts();
     let mut builder = hyper::Request::builder()
         .method(parts.method.as_str())
@@ -29,29 +30,27 @@ pub async fn rust_fetch(
     for (k, v) in parts.headers.iter() {
         builder = builder.header(
             k,
-            v.to_str()
-                .map_err(|e| FetchError::InvalidRequestHeader(s(e)))?,
+            v.to_str().map_err(|e| InvalidRequestHeader(Box::new(e)))?,
         );
     }
     let hyper_req = builder
         .body(hyper::Body::from(req_body))
-        .map_err(|e| FetchError::InvalidRequestBody(s(e)))?;
+        .map_err(|e| InvalidRequestBody(s(e)))?;
 
     let mut hyper_resp = hyper_client
         .request(hyper_req)
         .await
-        .map_err(|e| FetchError::RequestFailed(s(e)))?;
+        .map_err(|e| RequestFailed(s(e)))?;
     let http_resp_builder = http::response::Builder::new();
     let http_resp_bytes = hyper::body::to_bytes(hyper_resp.body_mut())
         .await
-        .map_err(|e| FetchError::ErrorReadingResponseBody(s(e)))?;
-    let http_resp_string =
-        String::from_utf8(http_resp_bytes.to_vec()) // Copies :(
-            .map_err(|e| FetchError::ErrorReadingResponseBodyAsString(s(e)))?;
+        .map_err(|e| ErrorReadingResponseBody(s(e)))?;
+    let http_resp_string = String::from_utf8(http_resp_bytes.to_vec()) // Copies :(
+        .map_err(|e| ErrorReadingResponseBodyAsString(s(e)))?;
     let http_resp = http_resp_builder
         .status(hyper_resp.status())
         .body(http_resp_string)
-        .map_err(|e| FetchError::FailedToWrapHttpResponse(s(e)))?;
+        .map_err(|e| FailedToWrapHttpResponse(s(e)))?;
     Ok(http_resp)
 }
 
@@ -89,7 +88,7 @@ pub async fn browser_fetch(
         h.set(
             k.as_ref(),
             v.to_str()
-                .map_err(|e| FetchError::InvalidRequestHeader(s(e)))?,
+                .map_err(|e| FetchError::InvalidRequestHeader(Box::new(e)))?,
         )
         .map_err(|e| FetchError::UnableToSetRequestHeader(s(e)))?;
     }
@@ -126,13 +125,13 @@ pub async fn browser_fetch(
 // FetchErrors are returned by both the rust and browser versions of fetch. Since
 // lower level errors in each case will be coming from two different places,
 // FetchError is lossy of the error types underneath: it holds an error string.
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum FetchError {
     ErrorReadingResponseBodyAsString(String),
     ErrorReadingResponseBody(String),
     FailedToWrapHttpResponse(String),
     InvalidRequestBody(String),
-    InvalidRequestHeader(String),
+    InvalidRequestHeader(Box<dyn std::error::Error>),
     InvalidResponseFromJS,
     NoWindow,
     RequestFailed(String),
