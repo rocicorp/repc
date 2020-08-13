@@ -279,13 +279,11 @@ async fn do_begin_sync<'a, 'b>(
     req: BeginSyncRequest,
 ) -> Result<BeginSyncResponse, sync::BeginSyncError> {
     // TODO move client up to process() or into a lazy static so we can re-use.
-    let hyper_client_owned: hyper::Client<hyper::client::HttpConnector>;
-    let mut hyper_client_option = None;
-    if !sync::USE_BROWSER_FETCH {
-        hyper_client_owned = hyper::Client::new();
-        hyper_client_option = Some(&hyper_client_owned);
-    }
-    let begin_sync_response = sync::begin_sync(hyper_client_option, &req).await?;
+    let hyper_client = match sync::USE_BROWSER_FETCH {
+        false => None,
+        true => Some(hyper::Client::new()),
+    };
+    let begin_sync_response = sync::begin_sync(hyper_client.as_ref(), &req).await?;
     Ok(begin_sync_response)
 }
 
