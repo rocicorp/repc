@@ -10,6 +10,12 @@ pub struct Client {
     hyper_client: hyper::Client<hyper::client::HttpConnector>,
 }
 
+impl Default for Client {
+    fn default() -> Self {
+        Client::new()
+    }
+}
+
 impl Client {
     pub fn new() -> Client {
         Client {

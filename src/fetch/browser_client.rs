@@ -22,6 +22,12 @@ fn js(err: JsValue) -> String {
 
 pub struct Client {}
 
+impl Default for Client {
+    fn default() -> Self {
+        Client::new()
+    }
+}
+
 impl Client {
     pub fn new() -> Client {
         Client {}
