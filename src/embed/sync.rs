@@ -9,8 +9,8 @@ use crate::fetch::errors::FetchError;
 use nanoserde::{DeJson, DeJsonErr, SerJson};
 use std::fmt::Debug;
 
-pub async fn begin_sync<'a>(
-    store: &'a dag::Store,
+pub async fn begin_sync(
+    store: &dag::Store,
     fetch_client: &fetch::client::Client,
     begin_sync_req: &BeginSyncRequest,
 ) -> Result<BeginSyncResponse, BeginSyncError> {
