@@ -238,6 +238,7 @@ pub enum PullError {
     InvalidResponse(DeJsonErr),
 }
 
+/*
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(test)]
 mod tests {
@@ -580,3 +581,4 @@ mod tests {
         }
     }
 }
+*/
