@@ -155,6 +155,7 @@ pub mod trait_tests {
         let rt = wt.as_read();
         assert!(rt.has("k2").await.unwrap());
         assert_eq!(Some(b"new value".to_vec()), rt.get("k2").await.unwrap());
+        wt.rollback().await.unwrap();
     }
 
     pub async fn isolation(store: &mut dyn Store) {

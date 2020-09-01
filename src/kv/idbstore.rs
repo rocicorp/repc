@@ -294,15 +294,7 @@ impl Write for WriteTransaction<'_> {
     }
 
     async fn commit(self: Box<Self>) -> Result<()> {
-        // Define rollback() to succeed if no writes have occurred, even if
-        // the underlying transaction has exited. Users who expose themselves
-        // to this would notice if they performed any reads after exposing
-        // themselves to a situation where the transaction would autocommit.
         let pending = self.pending.lock().await;
-        if pending.is_empty() {
-            return Ok(());
-        }
-
         let store = self.tx.object_store(OBJECT_STORE)?;
         let mut callbacks = Vec::with_capacity(pending.len());
         let mut requests: Vec<oneshot::Receiver<()>> = Vec::with_capacity(pending.len());
@@ -332,12 +324,6 @@ impl Write for WriteTransaction<'_> {
     }
 
     async fn rollback(self: Box<Self>) -> Result<()> {
-        // Define rollback() to succeed if no writes have occurred, even if
-        // the underlying transaction has exited.
-        if self.pending.lock().await.is_empty() {
-            return Ok(());
-        }
-
         let (lock, cv) = &*self.pair;
         match *lock.lock().await {
             WriteState::Committed | WriteState::Aborted => return Ok(()),

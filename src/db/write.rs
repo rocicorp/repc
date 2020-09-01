@@ -148,6 +148,14 @@ impl<'a> Write<'a> {
         self.checksum.to_string()
     }
 
+    pub async fn rollback(self) -> Result<(), RollbackError> {
+        Ok(self
+            .dag_write
+            .rollback()
+            .await
+            .map_err(RollbackError::DagRollbackError)?)
+    }
+
     // Return value is the hash of the new commit.
     #[allow(clippy::too_many_arguments)]
     pub async fn commit(
@@ -213,6 +221,11 @@ impl<'a> Write<'a> {
 
         Ok(commit.chunk().hash().to_string())
     }
+}
+
+#[derive(Debug)]
+pub enum RollbackError {
+    DagRollbackError(dag::Error),
 }
 
 #[derive(Debug)]

@@ -16,4 +16,4 @@ pub use commit::{
 };
 pub use read::{read_commit, OwnedRead, Read, ReadCommitError, Whence};
 pub use scan::{ScanBound, ScanKey, ScanOptions};
-pub use write::{init_db, CommitError, InitDBError, Write};
+pub use write::{init_db, CommitError, InitDBError, RollbackError, Write};

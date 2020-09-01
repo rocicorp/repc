@@ -319,10 +319,11 @@ async fn do_abort<'a, 'b>(
 ) -> Result<CloseTransactionResponse, CloseTransactionError> {
     use CloseTransactionError::*;
     let txn_id = request.transaction_id;
-    txns.write()
-        .await
-        .remove(&txn_id)
-        .ok_or(UnknownTransaction)?;
+    let mut txns = txns.write().await;
+    let txn = txns.remove(&txn_id).ok_or(UnknownTransaction)?;
+    if let Transaction::Write(w) = txn.into_inner() {
+        w.rollback().await.map_err(RollbackError)?;
+    }
     Ok(CloseTransactionResponse {})
 }
 
@@ -441,6 +442,7 @@ enum CommitTransactionError {
 #[derive(Debug)]
 enum CloseTransactionError {
     UnknownTransaction,
+    RollbackError(db::RollbackError),
 }
 
 trait TransactionRequest {
