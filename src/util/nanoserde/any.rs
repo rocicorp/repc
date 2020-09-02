@@ -85,6 +85,14 @@ mod tests {
     }
 
     #[test]
+    fn integer_round_trip() {
+        let original = Any::I64(1);
+        let serialized = SerJson::serialize_json(&original);
+        let round_tripped: Any = DeJson::deserialize_json(&serialized).unwrap();
+        assert_eq!(original, round_tripped); // <== Fails because original is I64 and round_tripped is U64.
+    }
+
+    #[test]
     fn deserialize() {
         fn test(input: &str, expected: Result<Any, DeJsonWrap>) {
             let actual: Result<Any, DeJsonErr> = DeJson::deserialize_json(input);
