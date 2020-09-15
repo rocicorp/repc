@@ -164,6 +164,12 @@ impl Store for IdbStore {
             .transaction_with_str_and_mode(OBJECT_STORE, web_sys::IdbTransactionMode::Readwrite)?;
         Ok(Box::new(WriteTransaction::new(db_guard, tx)?))
     }
+
+    async fn close(&self) -> Result<()> {
+        let db_guard = self.db.read().await;
+        db_guard.close();
+        Ok(())
+    }
 }
 
 struct ReadTransaction<'a> {
