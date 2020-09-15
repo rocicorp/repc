@@ -20,7 +20,7 @@ impl Store {
         Ok(Write::new(self.kv.write().await?))
     }
 
-    pub async fn close(&self) -> Result<()> {
-        Ok(self.kv.close().await?)
+    pub async fn close(&self) {
+        self.kv.close().await;
     }
 }

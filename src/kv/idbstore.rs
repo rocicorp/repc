@@ -165,10 +165,9 @@ impl Store for IdbStore {
         Ok(Box::new(WriteTransaction::new(db_guard, tx)?))
     }
 
-    async fn close(&self) -> Result<()> {
+    async fn close(&self) {
         let db_guard = self.db.read().await;
         db_guard.close();
-        Ok(())
     }
 }
 

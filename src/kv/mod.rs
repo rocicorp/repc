@@ -38,7 +38,7 @@ pub trait Store {
         Ok(self.read().await?.get(key).await?)
     }
 
-    async fn close(&self) -> Result<()>;
+    async fn close(&self);
 }
 
 #[async_trait(?Send)]

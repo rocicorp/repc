@@ -37,9 +37,7 @@ impl Store for MemStore {
         Ok(Box::new(WriteTransaction::new(guard)))
     }
 
-    async fn close(&self) -> Result<()> {
-        Ok(())
-    }
+    async fn close(&self) {}
 }
 
 struct ReadTransaction<'a> {
