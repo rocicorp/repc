@@ -8,6 +8,7 @@ use crate::util::uuid::uuid;
 use async_std::sync::{channel, Mutex, Receiver, Sender};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
+use str_macro::str;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::spawn_local;
@@ -81,6 +82,12 @@ async fn dispatch_loop(rx: Receiver<Request>) {
     }
 }
 
+pub async fn do_test() -> Result<String, String> {
+    use core::time::Duration;
+    wasm_timer::Delay::new(Duration::new(2, 0)).await.unwrap();
+    Ok(str!(""))
+}
+
 pub async fn dispatch(db_name: String, rpc: String, data: String) -> Response {
     let mut lc = LogContext::new();
     let rpc_id = RPC_COUNTER.fetch_add(1, Ordering::Relaxed).to_string();
@@ -90,20 +97,25 @@ pub async fn dispatch(db_name: String, rpc: String, data: String) -> Response {
     debug!(lc, "-> data={}", &data);
     let timer = rlog::Timer::new().map_err(|e| format!("{:?}", e))?;
 
-    let (tx, rx) = channel::<Response>(1);
-    let request = Request {
-        lc: lc.context().to_string(),
-        db_name: db_name.clone(),
-        rpc: rpc.clone(),
-        data,
-        response: tx,
+    let result = match rpc.as_str() {
+        "test" => do_test().await,
+        _ => {
+            let (tx, rx) = channel::<Response>(1);
+            let request = Request {
+                lc: lc.context().to_string(),
+                db_name: db_name.clone(),
+                rpc: rpc.clone(),
+                data,
+                response: tx,
+            };
+            SENDER.lock().await.send(request).await;
+            rx.recv()
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())
+        }
     };
-    SENDER.lock().await.send(request).await;
-    let receive_result = rx.recv().await;
-    let result = match receive_result {
-        Err(e) => Err(e.to_string()),
-        Ok(v) => v,
-    };
+
     debug!(
         lc,
         "<- elapsed={}ms result={:?}",
