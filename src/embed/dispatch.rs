@@ -1,9 +1,11 @@
 use crate::dag;
+use crate::db;
 use crate::embed::connection;
 use crate::kv::idbstore::IdbStore;
 use crate::kv::{Store, StoreError};
 use crate::util::rlog;
 use crate::util::rlog::LogContext;
+use crate::util::to_debug::to_debug;
 use crate::util::uuid::uuid;
 use async_std::sync::{channel, Mutex, Receiver, Sender};
 use std::collections::HashMap;
@@ -99,6 +101,14 @@ pub async fn dispatch(db_name: String, rpc: String, data: String) -> Response {
 
     let result = match rpc.as_str() {
         "test" => do_test().await,
+        "open" => db::open_database(db_name, lc.clone())
+            .await
+            .map(|_| str!(""))
+            .map_err(to_debug),
+        "close" => {
+            db::close_database(&db_name).await;
+            Ok(str!(""))
+        }
         _ => {
             let (tx, rx) = channel::<Response>(1);
             let request = Request {

@@ -12,4 +12,5 @@ mod connection;
 mod dispatch;
 
 pub mod types;
+pub use connection::{validate_rebase, OpenTransactionError};
 pub use dispatch::dispatch;

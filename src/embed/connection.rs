@@ -295,7 +295,7 @@ async fn do_open_transaction<'a, 'b>(
     })
 }
 
-async fn validate_rebase<'a>(
+pub async fn validate_rebase<'a>(
     opts: &'a RebaseOpts,
     dag_read: dag::Read<'_>,
     mutator_name: &'a str,
@@ -528,10 +528,11 @@ enum GetRootError {
 
 #[derive(Debug)]
 #[allow(clippy::enum_variant_names)]
-enum OpenTransactionError {
+pub enum OpenTransactionError {
     ArgsRequired,
     DagWriteError(dag::Error),
     DagReadError(dag::Error),
+    DatabaseNotOpen,
     DBWriteError(db::ReadCommitError),
     DBReadError(db::ReadCommitError),
     GetHeadError(dag::Error),
