@@ -194,6 +194,7 @@ pub enum BeginSyncError {
     ReadError(dag::Error),
     TimeTravelProhibited(String),
     WrongChecksum(String),
+    SerializeError(serde_json::error::Error),
 }
 
 pub async fn maybe_end_sync(
@@ -319,6 +320,7 @@ pub enum MaybeEndSyncError {
     WriteDefaultHeadError(dag::Error),
     WriteSyncHeadError(dag::Error),
     WrongSyncHeadJSLogInfo, // "JSLogInfo" is a signal to bindings to not log this alarmingly.
+    SerializeError(serde_json::error::Error),
 }
 
 #[derive(Debug, Default, PartialEq, Serialize)]

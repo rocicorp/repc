@@ -14,6 +14,7 @@ use futures::stream::futures_unordered::FuturesUnordered;
 use log::warn;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
+use wasm_bindgen::JsValue;
 
 lazy_static! {
     static ref TRANSACTION_COUNTER: AtomicU32 = AtomicU32::new(1);
@@ -76,7 +77,10 @@ async fn connection_future<'a, 'b>(
         }
         _ => {
             req.response
-                .send(Err(format!("Unsupported rpc name {}", req.rpc)))
+                .send(Err(JsValue::from_str(&format!(
+                    "Unsupported rpc name {}",
+                    req.rpc
+                ))))
                 .await
         }
     };
@@ -125,15 +129,19 @@ pub async fn process(store: dag::Store, rx: Receiver<Request>, client_id: String
     }
 }
 
-async fn execute_in_txn<T, S, F>(func: F, txns: &TxnMap<'_>, req: Request)
+async fn execute_in_txn<T, F>(func: F, txns: &TxnMap<'_>, req: Request)
 where
     T: serde::de::DeserializeOwned + TransactionRequest,
-    S: serde::Serialize,
-    F: for<'r, 's> AsyncFn3<&'r RwLock<Transaction<'s>>, T, LogContext, Output = Result<S, String>>,
+    F: for<'r, 's> AsyncFn3<
+        &'r RwLock<Transaction<'s>>,
+        T,
+        LogContext,
+        Output = Result<JsValue, String>,
+    >,
 {
     let request: T = match deserialize(&req.data) {
         Ok(v) => v,
-        Err(e) => return req.response.send(Err(e)).await,
+        Err(e) => return req.response.send(Err(JsValue::from_str(&e))).await,
     };
 
     let txn_id = request.transaction_id();
@@ -145,7 +153,10 @@ where
         None => {
             return req
                 .response
-                .send(Err(format!("No transaction {}", txn_id)))
+                .send(Err(JsValue::from_str(&format!(
+                    "No transaction {}",
+                    txn_id
+                ))))
                 .await
         }
     };
@@ -153,13 +164,7 @@ where
     let result = func
         .call(txn, request, req.lc.clone())
         .await
-        .map(|v| serde_json::to_string(&v));
-    // When https://doc.rust-lang.org/std/result/enum.Result.html lands we can remove this.
-    let result = match result {
-        Ok(Ok(v)) => Ok(v),
-        Ok(Err(v)) => Err(to_debug(v)),
-        Err(v) => Err(v),
-    };
+        .map_err(|e| JsValue::from_str(&e));
     req.response.send(result).await
 }
 
@@ -186,30 +191,21 @@ impl<'a, 'b> Context<'a, 'b> {
     }
 }
 
-async fn execute<'a, 'b, T, S, F, E>(ctx: Context<'a, 'b>, func: F, req: Request)
+async fn execute<'a, 'b, T, F, E>(ctx: Context<'a, 'b>, func: F, req: Request)
 where
     T: serde::de::DeserializeOwned,
-    S: serde::Serialize,
     E: std::fmt::Debug,
-    F: AsyncFn2<Context<'a, 'b>, T, Output = Result<S, E>>,
+    F: AsyncFn2<Context<'a, 'b>, T, Output = Result<JsValue, E>>,
 {
     let request: T = match deserialize(&req.data) {
         Ok(v) => v,
-        Err(e) => return req.response.send(Err(e)).await,
+        Err(e) => return req.response.send(Err(JsValue::from_str(&e))).await,
     };
 
-    let result = func
-        .call(ctx, request)
+    let result = func.call(ctx, request).await;
+    req.response
+        .send(result.map_err(|e| JsValue::from_str(&to_debug(e))))
         .await
-        .map(|v| serde_json::to_string(&v));
-    // When https://doc.rust-lang.org/std/result/enum.Result.html lands we can remove this.
-    let result = match result {
-        Ok(Ok(v)) => Ok(v),
-        Ok(Err(v)) => Err(to_debug(v)),
-        Err(v) => Err(to_debug(v)),
-    };
-
-    req.response.send(result).await
 }
 
 #[derive(Debug)]
@@ -239,7 +235,7 @@ async fn do_init(store: &dag::Store, lc: LogContext) -> Result<(), DoInitError> 
 async fn do_open_transaction<'a, 'b>(
     ctx: Context<'a, 'b>,
     req: OpenTransactionRequest,
-) -> Result<OpenTransactionResponse, OpenTransactionError> {
+) -> Result<JsValue, OpenTransactionError> {
     use OpenTransactionError::*;
 
     let txn = match req.name {
@@ -292,9 +288,12 @@ async fn do_open_transaction<'a, 'b>(
 
     let txn_id = TRANSACTION_COUNTER.fetch_add(1, Ordering::SeqCst);
     ctx.txns.write().await.insert(txn_id, RwLock::new(txn));
-    Ok(OpenTransactionResponse {
-        transaction_id: txn_id,
-    })
+    Ok(JsValue::from_str(
+        &serde_json::to_string(&OpenTransactionResponse {
+            transaction_id: txn_id,
+        })
+        .map_err(SerializeError)?,
+    ))
 }
 
 async fn validate_rebase<'a>(
@@ -359,7 +358,7 @@ async fn validate_rebase<'a>(
 async fn do_commit<'a, 'b>(
     ctx: Context<'a, 'b>,
     req: CommitTransactionRequest,
-) -> Result<CommitTransactionResponse, CommitTransactionError> {
+) -> Result<JsValue, CommitTransactionError> {
     use CommitTransactionError::*;
     let txn_id = req.transaction_id;
     let mut txns = ctx.txns.write().await;
@@ -377,16 +376,19 @@ async fn do_commit<'a, 'b>(
         .commit(head_name, "local-create-date")
         .await
         .map_err(CommitError)?;
-    Ok(CommitTransactionResponse {
-        hash,
-        retry_commit: false,
-    })
+    Ok(JsValue::from_str(
+        &serde_json::to_string(&CommitTransactionResponse {
+            hash,
+            retry_commit: false,
+        })
+        .map_err(SerializeError)?,
+    ))
 }
 
 async fn do_close_transaction<'a, 'b>(
     ctx: Context<'a, 'b>,
     request: CloseTransactionRequest,
-) -> Result<CloseTransactionResponse, CloseTransactionError> {
+) -> Result<JsValue, CloseTransactionError> {
     use CloseTransactionError::*;
     let txn_id = request.transaction_id;
     ctx.txns
@@ -394,39 +396,49 @@ async fn do_close_transaction<'a, 'b>(
         .await
         .remove(&txn_id)
         .ok_or(UnknownTransaction)?;
-    Ok(CloseTransactionResponse {})
+    Ok(JsValue::from_str(
+        &serde_json::to_string(&CloseTransactionResponse {})
+            .map_err(CloseTransactionError::SerializeError)?,
+    ))
 }
 
 async fn do_get_root<'a, 'b>(
     ctx: Context<'a, 'b>,
     req: GetRootRequest,
-) -> Result<GetRootResponse, GetRootError> {
+) -> Result<JsValue, GetRootError> {
+    use GetRootError::*;
     let head_name = match req.head_name {
         Some(name) => name,
         None => db::DEFAULT_HEAD_NAME.to_string(),
     };
-    Ok(GetRootResponse {
-        root: db::get_root(ctx.store, head_name.as_str(), ctx.lc.clone())
-            .await
-            .map_err(GetRootError::DBError)?,
-    })
+    Ok(JsValue::from_str(
+        &serde_json::to_string(&GetRootResponse {
+            root: db::get_root(ctx.store, head_name.as_str(), ctx.lc.clone())
+                .await
+                .map_err(DBError)?,
+        })
+        .map_err(SerializeError)?,
+    ))
 }
 
 async fn do_has(
     txn: &RwLock<Transaction<'_>>,
     req: HasRequest,
     _: LogContext,
-) -> Result<HasResponse, String> {
-    Ok(HasResponse {
-        has: txn.read().await.as_read().has(req.key.as_bytes()),
-    })
+) -> Result<JsValue, String> {
+    Ok(JsValue::from_str(
+        &serde_json::to_string(&HasResponse {
+            has: txn.read().await.as_read().has(req.key.as_bytes()),
+        })
+        .map_err(to_debug)?, // todo
+    ))
 }
 
 async fn do_get(
     txn: &RwLock<Transaction<'_>>,
     req: GetRequest,
     _: LogContext,
-) -> Result<GetResponse, String> {
+) -> Result<JsValue, String> {
     #[cfg(not(default))] // Not enabled in production.
     if req.key.starts_with("sleep") {
         use async_std::task::sleep;
@@ -450,44 +462,51 @@ async fn do_get(
         return Err(to_debug(e));
     }
     let got = got.map(|r| r.unwrap());
-    Ok(GetResponse {
-        has: got.is_some(),
-        value: got,
-    })
+    Ok(JsValue::from_str(
+        &serde_json::to_string(&GetResponse {
+            has: got.is_some(),
+            value: got,
+        })
+        .map_err(to_debug)?, // todo
+    ))
 }
 
 async fn do_scan(
     txn: &RwLock<Transaction<'_>>,
     req: ScanRequest,
     _: LogContext,
-) -> Result<ScanResponse, String> {
+) -> Result<JsValue, String> {
     use std::convert::TryFrom;
     let mut res = Vec::<ScanItem>::new();
     for pe in txn.read().await.as_read().scan((&req.opts).into()) {
         res.push(ScanItem::try_from(pe).map_err(to_debug)?);
     }
-    Ok(ScanResponse { items: res })
+    Ok(JsValue::from_str(
+        &serde_json::to_string(&ScanResponse { items: res }).map_err(to_debug)?,
+    ))
 }
 
 async fn do_put(
     txn: &RwLock<Transaction<'_>>,
     req: PutRequest,
     _: LogContext,
-) -> Result<PutResponse, String> {
+) -> Result<JsValue, String> {
     let mut guard = txn.write().await;
     let write = match &mut *guard {
         Transaction::Write(w) => Ok(w),
         Transaction::Read(_) => Err("Specified transaction is read-only".to_string()),
     }?;
     write.put(req.key.as_bytes().to_vec(), req.value.into_bytes());
-    Ok(PutResponse {})
+    Ok(JsValue::from_str(
+        &serde_json::to_string(&PutResponse {}).map_err(to_debug)?,
+    ))
 }
 
 async fn do_del(
     txn: &RwLock<Transaction<'_>>,
     req: DelRequest,
     _: LogContext,
-) -> Result<DelResponse, String> {
+) -> Result<JsValue, String> {
     let mut guard = txn.write().await;
     let write = match &mut *guard {
         Transaction::Write(w) => Ok(w),
@@ -495,13 +514,15 @@ async fn do_del(
     }?;
     let had = write.as_read().has(req.key.as_bytes());
     write.del(req.key.as_bytes().to_vec());
-    Ok(DelResponse { had })
+    Ok(JsValue::from_str(
+        &serde_json::to_string(&DelResponse { had }).map_err(to_debug)?,
+    ))
 }
 
 async fn do_begin_sync<'a, 'b>(
     ctx: Context<'a, 'b>,
     req: sync::BeginSyncRequest,
-) -> Result<sync::BeginSyncResponse, sync::BeginSyncError> {
+) -> Result<JsValue, sync::BeginSyncError> {
     // TODO move client, puller, pusher up to process() or into a lazy static so we can share.
     let fetch_client = fetch::client::Client::new();
     let pusher = sync::push::FetchPusher::new(&fetch_client);
@@ -515,21 +536,28 @@ async fn do_begin_sync<'a, 'b>(
         ctx.client_id,
     )
     .await?;
-    Ok(begin_sync_response)
+    Ok(JsValue::from_str(
+        &serde_json::to_string(&begin_sync_response)
+            .map_err(sync::BeginSyncError::SerializeError)?, // TODO
+    ))
 }
 
 async fn do_maybe_end_sync<'a, 'b>(
     ctx: Context<'a, 'b>,
     req: sync::MaybeEndSyncRequest,
-) -> Result<sync::MaybeEndSyncResponse, sync::MaybeEndSyncError> {
+) -> Result<JsValue, sync::MaybeEndSyncError> {
     let maybe_end_sync_response = sync::maybe_end_sync(ctx.store, ctx.lc.clone(), req).await?;
-    Ok(maybe_end_sync_response)
+    Ok(JsValue::from_str(
+        &serde_json::to_string(&maybe_end_sync_response)
+            .map_err(sync::MaybeEndSyncError::SerializeError)?,
+    ))
 }
 
 #[derive(Debug)]
 #[allow(clippy::enum_variant_names)]
 enum GetRootError {
     DBError(db::GetRootError),
+    SerializeError(serde_json::error::Error),
 }
 
 #[derive(Debug)]
@@ -548,6 +576,7 @@ enum OpenTransactionError {
     NoSuchBasis(db::ReadCommitError),
     NoSuchOriginal(db::ReadCommitError),
     WrongSyncHeadJSLogInfo(String), // "JSLogInfo" is a signal to bindings to not log this alarmingly.
+    SerializeError(serde_json::error::Error),
 }
 
 #[derive(Debug)]
@@ -555,11 +584,13 @@ enum CommitTransactionError {
     CommitError(db::CommitError),
     TransactionIsReadOnly,
     UnknownTransaction,
+    SerializeError(serde_json::error::Error),
 }
 
 #[derive(Debug)]
 enum CloseTransactionError {
     UnknownTransaction,
+    SerializeError(serde_json::error::Error),
 }
 
 trait TransactionRequest {
@@ -682,26 +713,36 @@ mod tests {
             assert!(to_debug(err).contains("InconsistentMutationId"));
 
             // Correct rebase_opt (test this last because it affects the chain).
-            let otr = do_open_transaction(
-                Context::new(&store, &txns, str!("client_id"), LogContext::new()),
-                OpenTransactionRequest {
-                    name: Some(original_name.clone()),
-                    args: Some(original_args.clone()),
-                    rebase_opts: Some(RebaseOpts {
-                        basis: str!(sync_chain[0].chunk().hash()),
-                        original_hash: original_hash.clone(),
-                    }),
-                },
+            let otr: OpenTransactionResponse = serde_json::from_str(
+                &do_open_transaction(
+                    Context::new(&store, &txns, str!("client_id"), LogContext::new()),
+                    OpenTransactionRequest {
+                        name: Some(original_name.clone()),
+                        args: Some(original_args.clone()),
+                        rebase_opts: Some(RebaseOpts {
+                            basis: str!(sync_chain[0].chunk().hash()),
+                            original_hash: original_hash.clone(),
+                        }),
+                    },
+                )
+                .await
+                .unwrap()
+                .as_string()
+                .unwrap(),
             )
-            .await
             .unwrap();
-            let ctr = do_commit(
-                Context::new(&store, &txns, str!("client_id"), LogContext::new()),
-                CommitTransactionRequest {
-                    transaction_id: otr.transaction_id,
-                },
+            let ctr: CommitTransactionResponse = serde_json::from_str(
+                &do_commit(
+                    Context::new(&store, &txns, str!("client_id"), LogContext::new()),
+                    CommitTransactionRequest {
+                        transaction_id: otr.transaction_id,
+                    },
+                )
+                .await
+                .unwrap()
+                .as_string()
+                .unwrap(),
             )
-            .await
             .unwrap();
             let w = store.write(LogContext::new()).await.unwrap();
             let sync_head_hash = w

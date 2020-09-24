@@ -1,9 +1,8 @@
 #[macro_use]
 pub mod util;
 
-#[cfg(not(target_arch = "wasm32"))]
-mod ffi;
-
+//#[cfg(not(target_arch = "wasm32"))]
+//mod ffi;
 pub mod wasm;
 
 extern crate async_std;

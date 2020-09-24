@@ -9,6 +9,7 @@ use crate::util::uuid::uuid;
 use async_std::sync::{channel, Mutex, Receiver, Sender};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
+use wasm_bindgen::JsValue;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::spawn_local;
@@ -28,7 +29,9 @@ pub struct Request {
     pub response: Sender<Response>,
 }
 
-type Response = Result<String, String>;
+unsafe impl Send for Request {}
+
+type Response = Result<JsValue, JsValue>;
 
 lazy_static! {
     static ref SENDER: Mutex<Sender::<Request>> = {
@@ -63,7 +66,6 @@ async fn dispatch_loop(rx: Receiver<Request>) {
         let response = match req.rpc.as_str() {
             "open" => Some(do_open(&mut conns, &req).await),
             "close" => Some(do_close(&mut conns, &req).await),
-            "drop" => Some(do_drop(&mut conns, &req).await),
             "debug" => Some(do_debug(&conns, &req).await),
             _ => None,
         };
@@ -75,7 +77,10 @@ async fn dispatch_loop(rx: Receiver<Request>) {
             Some(tx) => tx.send(req).await,
             None => {
                 req.response
-                    .send(Err(format!("\"{}\" not open", req.db_name)))
+                    .send(Err(JsValue::from_str(&format!(
+                        "\"{}\" not open",
+                        req.db_name
+                    ))))
                     .await;
             }
         };
@@ -100,18 +105,14 @@ pub async fn dispatch(db_name: String, rpc: String, data: String) -> Response {
         response: tx,
     };
     SENDER.lock().await.send(request).await;
-    let receive_result = rx.recv().await;
-    let result = match receive_result {
-        Err(e) => Err(e.to_string()),
-        Ok(v) => v,
-    };
+    let receive_result = rx.recv().await.map_err(to_debug)?;
     debug!(
         lc,
         "<- elapsed={}ms result={:?}",
         timer.elapsed_ms(),
-        result
+        receive_result
     );
-    result
+    receive_result
 }
 
 async fn do_open(conns: &mut ConnMap, req: &Request) -> Response {
@@ -126,9 +127,19 @@ async fn do_open(conns: &mut ConnMap, req: &Request) -> Response {
         #[cfg(not(target_arch = "wasm32"))]
         "mem" => Box::new(crate::kv::memstore::MemStore::new()),
         _ => match IdbStore::new(&req.db_name[..]).await {
-            Err(e) => return Err(format!("Failed to open \"{}\": {}", req.db_name, e)),
+            Err(e) => {
+                return Err(JsValue::from_str(&format!(
+                    "Failed to open \"{}\": {}",
+                    req.db_name, e
+                )))
+            }
             Ok(v) => match v {
-                None => return Err(format!("Didn't open \"{}\"", req.db_name)),
+                None => {
+                    return Err(JsValue::from_str(&format!(
+                        "Didn't open \"{}\"",
+                        req.db_name
+                    )))
+                }
                 Some(v) => Box::new(v),
             },
         },
@@ -168,23 +179,10 @@ async fn do_close(conns: &mut ConnMap, req: &Request) -> Response {
     Ok("".into())
 }
 
-async fn do_drop(_: &mut ConnMap, req: &Request) -> Response {
-    match &req.db_name[..] {
-        #[cfg(not(target_arch = "wasm32"))]
-        "mem" => Ok("".into()),
-        _ => {
-            IdbStore::drop_store(&req.db_name, req.lc.clone())
-                .await
-                .map_err(|e| e.to_string())?;
-            Ok("".into())
-        }
-    }
-}
-
 async fn do_debug(conns: &ConnMap, req: &Request) -> Response {
     match req.data.as_str() {
-        "open_dbs" => Ok(to_debug(conns.keys())),
-        _ => Err("Debug command not defined".into()),
+        "open_dbs" => Ok(JsValue::from_str(&to_debug(conns.keys()))),
+        _ => Err(JsValue::from_str("Debug command not defined")),
     }
 }
 
