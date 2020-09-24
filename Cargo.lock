@@ -1261,7 +1261,7 @@ dependencies = [
 
 [[package]]
 name = "replicache-client"
-version = "0.1.0-REPLACE"
+version = "0.7.0-3-ga2cdb72"
 dependencies = [
  "async-fn",
  "async-native-tls",

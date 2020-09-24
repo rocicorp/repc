@@ -476,14 +476,19 @@ async fn do_scan(
     req: ScanRequest,
     _: LogContext,
 ) -> Result<JsValue, String> {
-    use std::convert::TryFrom;
-    let mut res = Vec::<ScanItem>::new();
+    use js_sys::Uint8Array;
+
+    let receiver: js_sys::Function =
+        js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("scan_receiver"))
+            .unwrap()
+            .into();
     for pe in txn.read().await.as_read().scan((&req.opts).into()) {
-        res.push(ScanItem::try_from(pe).map_err(to_debug)?);
+        let key = JsValue::from_str(std::str::from_utf8(pe.key).unwrap());
+        let val = unsafe { Uint8Array::view(pe.val) };
+        receiver.call2(&JsValue::null(), &key, &val).unwrap();
     }
-    Ok(JsValue::from_str(
-        &serde_json::to_string(&ScanResponse { items: res }).map_err(to_debug)?,
-    ))
+
+    Ok(JsValue::null())
 }
 
 async fn do_put(
