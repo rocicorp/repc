@@ -1,20 +1,25 @@
 use super::key::Key;
 use super::{chunk::Chunk, meta_generated::meta};
-use super::{read, Result};
+use super::{read, Error, Result};
 use crate::kv;
 use async_recursion::async_recursion;
 use async_std::sync::RwLock;
 use futures::future::try_join_all;
 use futures::try_join;
 use std::collections::HashSet;
+use std::convert::TryInto;
+use str_macro::str;
 
 #[derive(Debug, Default)]
-struct HeadChange(Option<String>, Option<String>);
+struct HeadChange {
+    new: Option<String>,
+    old: Option<String>,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum RefCount {
-    Inc = 1,
-    Dec = -1,
+enum RefCountChange {
+    Increment = 1,
+    Decrement = -1,
 }
 
 pub struct Write<'a> {
@@ -68,10 +73,10 @@ impl<'a> Write<'_> {
             Some(h) => self.kvw.put(&head_key, h.as_bytes()).await?,
         }
 
-        self.changed_heads
-            .write()
-            .await
-            .push(HeadChange(hash.map(str::to_string), old_hash));
+        self.changed_heads.write().await.push(HeadChange {
+            new: hash.map(str::to_string),
+            old: old_hash,
+        });
 
         Ok(())
     }
@@ -102,16 +107,22 @@ impl<'a> Write<'_> {
         let buf = self.kvw.get(&Key::ChunkRefCount(hash).to_string()).await?;
         Ok(match buf {
             None => 0u16,
-            Some(buf) => u16::from_be_bytes([buf[0], buf[1]]),
+            Some(buf) => u16::from_be_bytes(
+                buf[..]
+                    .try_into()
+                    .map_err(|_e| Error::CorruptStore(str!("invalid ref count value")))?,
+            ),
         })
     }
 
     #[async_recursion(?Send)]
-    async fn change_ref_count(&self, hash: &str, rc: RefCount) -> Result<()> {
+    async fn change_ref_count(&self, hash: &str, rc: RefCountChange) -> Result<()> {
         let old_count = self.get_ref_count(hash).await?;
         let new_count = (old_count as i32) + (rc as i32);
 
-        if old_count == 0 && rc == RefCount::Inc || old_count == 1 && rc == RefCount::Dec {
+        if old_count == 0 && rc == RefCountChange::Increment
+            || old_count == 1 && rc == RefCountChange::Decrement
+        {
             let meta_key = Key::ChunkMeta(hash).to_string();
             let buf = self.kvw.get(&meta_key).await?;
             if let Some(buf) = buf {
@@ -160,15 +171,15 @@ impl<'a> Write<'_> {
         let changed_heads = self.changed_heads.read().await;
         let (new, old): (Vec<Option<&str>>, Vec<Option<&str>>) = changed_heads
             .iter()
-            .map(|HeadChange(new, old)| (new.as_deref(), old.as_deref()))
+            .map(|HeadChange { new, old }| (new.as_deref(), old.as_deref()))
             .unzip();
 
         for n in new.iter().filter_map(Option::as_ref) {
-            self.change_ref_count(n, RefCount::Inc).await?;
+            self.change_ref_count(n, RefCountChange::Increment).await?;
         }
 
         for o in old.iter().filter_map(Option::as_ref) {
-            self.change_ref_count(o, RefCount::Dec).await?;
+            self.change_ref_count(o, RefCountChange::Decrement).await?;
         }
 
         // Now we go through the mutated chunks to see if any of them are still orphaned.
