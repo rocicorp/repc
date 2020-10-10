@@ -155,7 +155,7 @@ impl<'a> Write<'_> {
     async fn set_ref_count(&self, hash: &str, count: u16) -> Result<()> {
         // Ref count is represented as a u16 stored as 2 bytes using BE.
         let ref_count_key = Key::ChunkRefCount(hash).to_string();
-        let buf = count.to_be_bytes();
+        let buf = count.to_le_bytes();
         if count == 0u16 {
             self.kvw.del(&ref_count_key).await?;
         } else {
@@ -168,7 +168,7 @@ impl<'a> Write<'_> {
         let buf = self.kvw.get(&Key::ChunkRefCount(hash).to_string()).await?;
         Ok(match buf {
             None => 0u16,
-            Some(buf) => u16::from_be_bytes(
+            Some(buf) => u16::from_le_bytes(
                 buf[..]
                     .try_into()
                     .map_err(|_e| Error::CorruptStore(str!("invalid ref count value")))?,
