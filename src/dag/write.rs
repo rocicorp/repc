@@ -91,28 +91,36 @@ impl<'a> Write<'_> {
         Ok(self.kvw.rollback().await?)
     }
 
-    async fn set_ref_count(&self, hash: &str, count: u16) -> Result<()> {
-        // Ref count is represented as a u16 stored as 2 bytes using BE.
-        let ref_count_key = Key::ChunkRefCount(hash).to_string();
-        let buf = count.to_be_bytes();
-        if count == 0u16 {
-            self.kvw.del(&ref_count_key).await?;
-        } else {
-            self.kvw.put(&ref_count_key, &buf).await?;
-        }
-        Ok(())
-    }
+    async fn collect_garbage(&self) -> Result<()> {
+        // We increment all the ref counts before we do all the decrements. This
+        // is so that we do not remove an item that goes from 1 -> 0 -> 1
 
-    async fn get_ref_count(&self, hash: &str) -> Result<u16> {
-        let buf = self.kvw.get(&Key::ChunkRefCount(hash).to_string()).await?;
-        Ok(match buf {
-            None => 0u16,
-            Some(buf) => u16::from_be_bytes(
-                buf[..]
-                    .try_into()
-                    .map_err(|_e| Error::CorruptStore(str!("invalid ref count value")))?,
-            ),
-        })
+        let changed_heads = self.changed_heads.read().await;
+        let (new, old): (Vec<Option<&str>>, Vec<Option<&str>>) = changed_heads
+            .iter()
+            .map(|HeadChange { new, old }| (new.as_deref(), old.as_deref()))
+            .unzip();
+
+        for n in new.iter().filter_map(Option::as_ref) {
+            self.change_ref_count(n, RefCountChange::Increment).await?;
+        }
+
+        for o in old.iter().filter_map(Option::as_ref) {
+            self.change_ref_count(o, RefCountChange::Decrement).await?;
+        }
+
+        // Now we go through the mutated chunks to see if any of them are still orphaned.
+        let mutated_chunks = self.mutated_chunks.read().await;
+        try_join_all(mutated_chunks.iter().map(|hash| async move {
+            let count = self.get_ref_count(&hash).await?;
+            if count == 0u16 {
+                self.remove_all_related_keys(&hash, false).await?;
+            }
+            Ok(()) as Result<()>
+        }))
+        .await?;
+
+        Ok(())
     }
 
     #[async_recursion(?Send)]
@@ -144,6 +152,30 @@ impl<'a> Write<'_> {
         Ok(())
     }
 
+    async fn set_ref_count(&self, hash: &str, count: u16) -> Result<()> {
+        // Ref count is represented as a u16 stored as 2 bytes using BE.
+        let ref_count_key = Key::ChunkRefCount(hash).to_string();
+        let buf = count.to_be_bytes();
+        if count == 0u16 {
+            self.kvw.del(&ref_count_key).await?;
+        } else {
+            self.kvw.put(&ref_count_key, &buf).await?;
+        }
+        Ok(())
+    }
+
+    async fn get_ref_count(&self, hash: &str) -> Result<u16> {
+        let buf = self.kvw.get(&Key::ChunkRefCount(hash).to_string()).await?;
+        Ok(match buf {
+            None => 0u16,
+            Some(buf) => u16::from_be_bytes(
+                buf[..]
+                    .try_into()
+                    .map_err(|_e| Error::CorruptStore(str!("invalid ref count value")))?,
+            ),
+        })
+    }
+
     async fn remove_all_related_keys(&self, hash: &str, update_mutated_chunks: bool) -> Result<()> {
         let data_key = Key::ChunkData(hash).to_string();
         let meta_key = Key::ChunkMeta(hash).to_string();
@@ -155,44 +187,14 @@ impl<'a> Write<'_> {
             self.kvw.del(&ref_count_key),
         )?;
 
-        // TODO: Getting the write lock could be done in parallel too.
+        // Getting the write lock could be done in parallel too but seems like
+        // we do not want to hold on to that for the entire duration of the
+        // above writes.
 
         if update_mutated_chunks {
             let mut mutated_chunks = self.mutated_chunks.write().await;
             mutated_chunks.remove(hash);
         }
-        Ok(())
-    }
-
-    async fn collect_garbage(&self) -> Result<()> {
-        // We increment all the ref counts before we do all the decrements. This
-        // is so that we do not remove an item that goes from 1 -> 0 -> 1
-
-        let changed_heads = self.changed_heads.read().await;
-        let (new, old): (Vec<Option<&str>>, Vec<Option<&str>>) = changed_heads
-            .iter()
-            .map(|HeadChange { new, old }| (new.as_deref(), old.as_deref()))
-            .unzip();
-
-        for n in new.iter().filter_map(Option::as_ref) {
-            self.change_ref_count(n, RefCountChange::Increment).await?;
-        }
-
-        for o in old.iter().filter_map(Option::as_ref) {
-            self.change_ref_count(o, RefCountChange::Decrement).await?;
-        }
-
-        // Now we go through the mutated chunks to see if any of them are still orphaned.
-        let mutated_chunks = self.mutated_chunks.read().await;
-        try_join_all(mutated_chunks.iter().map(|hash| async move {
-            let count = self.get_ref_count(&hash).await?;
-            if count == 0u16 {
-                self.remove_all_related_keys(&hash, false).await?;
-            }
-            Ok(()) as Result<()>
-        }))
-        .await?;
-
         Ok(())
     }
 }
