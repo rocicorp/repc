@@ -249,7 +249,7 @@ mod tests {
             assert!(buf.is_none());
         } else {
             let buf = buf.unwrap();
-            let m_count = ((buf[0] as u16) << 8) + (buf[1] as u16);
+            let m_count = u16::from_le_bytes(buf[..].try_into().unwrap());
             assert_eq!(m_count, count);
         }
     }
