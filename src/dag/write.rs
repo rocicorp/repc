@@ -6,8 +6,8 @@ use async_recursion::async_recursion;
 use async_std::sync::RwLock;
 use futures::future::try_join_all;
 use futures::try_join;
-use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use str_macro::str;
 
@@ -79,10 +79,13 @@ impl<'a> Write<'_> {
             Entry::Occupied(mut entry) => {
                 // Keep old if occupied.
                 entry.get_mut().new = hash.map(str::to_string);
-            },
+            }
             Entry::Vacant(entry) => {
-                entry.insert(HeadChange{new: hash.map(str::to_string), old: old_hash});
-            },
+                entry.insert(HeadChange {
+                    new: hash.map(str::to_string),
+                    old: old_hash,
+                });
+            }
         }
 
         Ok(())
