@@ -350,7 +350,7 @@ mod tests {
                 }
             }
 
-            // The data shoul only persist if we set the head and commit.
+            // The data should only persist if we set the head and commit.
             let kvr = kv.read(LogContext::new()).await.unwrap();
             assert_eq!(set_head && commit, kvr.has(&key).await.unwrap());
         }
