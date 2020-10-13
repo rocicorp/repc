@@ -6,7 +6,8 @@ use async_recursion::async_recursion;
 use async_std::sync::RwLock;
 use futures::future::try_join_all;
 use futures::try_join;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::Entry;
 use std::convert::TryInto;
 use str_macro::str;
 
@@ -24,7 +25,7 @@ enum RefCountChange {
 
 pub struct Write<'a> {
     kvw: Box<dyn kv::Write + 'a>,
-    changed_heads: RwLock<Vec<HeadChange>>,
+    changed_heads: RwLock<HashMap<String, HeadChange>>,
     mutated_chunks: RwLock<HashSet<String>>,
 }
 
@@ -73,10 +74,16 @@ impl<'a> Write<'_> {
             Some(h) => self.kvw.put(&head_key, h.as_bytes()).await?,
         }
 
-        self.changed_heads.write().await.push(HeadChange {
-            new: hash.map(str::to_string),
-            old: old_hash,
-        });
+        let mut map = self.changed_heads.write().await;
+        match map.entry(name.to_string()) {
+            Entry::Occupied(mut entry) => {
+                // Keep old if occupied.
+                entry.get_mut().new = hash.map(str::to_string);
+            },
+            Entry::Vacant(entry) => {
+                entry.insert(HeadChange{new: hash.map(str::to_string), old: old_hash});
+            },
+        }
 
         Ok(())
     }
@@ -98,7 +105,7 @@ impl<'a> Write<'_> {
         let changed_heads = self.changed_heads.read().await;
         let (new, old): (Vec<Option<&str>>, Vec<Option<&str>>) = changed_heads
             .iter()
-            .map(|HeadChange { new, old }| (new.as_deref(), old.as_deref()))
+            .map(|(_name, HeadChange { new, old })| (new.as_deref(), old.as_deref()))
             .unzip();
 
         for n in new.iter().filter_map(Option::as_ref) {
