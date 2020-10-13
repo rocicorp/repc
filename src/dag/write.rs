@@ -74,31 +74,24 @@ impl<'a> Write<'_> {
                 Some(h) => self.kvw.put(&head_key, h.as_bytes()),
             }
             .map_err(Error::Storage),
-            self.update_change_heads(name, hash, old_hash)
+            async {
+                let mut map = self.changed_heads.write().await;
+                match map.entry(name.to_string()) {
+                    Entry::Occupied(mut entry) => {
+                        // Keep old if occupied.
+                        entry.get_mut().new = hash.map(str::to_string);
+                    }
+                    Entry::Vacant(entry) => {
+                        entry.insert(HeadChange {
+                            new: hash.map(str::to_string),
+                            old: old_hash,
+                        });
+                    }
+                }
+                Ok(())
+            }
         )?;
 
-        Ok(())
-    }
-
-    async fn update_change_heads(
-        &self,
-        name: &str,
-        new_hash: Option<&str>,
-        old_hash: Option<String>,
-    ) -> Result<()> {
-        let mut map = self.changed_heads.write().await;
-        match map.entry(name.to_string()) {
-            Entry::Occupied(mut entry) => {
-                // Keep old if occupied.
-                entry.get_mut().new = new_hash.map(str::to_string);
-            }
-            Entry::Vacant(entry) => {
-                entry.insert(HeadChange {
-                    new: new_hash.map(str::to_string),
-                    old: old_hash,
-                });
-            }
-        }
         Ok(())
     }
 
