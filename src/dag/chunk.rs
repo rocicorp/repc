@@ -39,17 +39,10 @@ impl Chunk {
     }
 
     pub fn refs(&self) -> impl Iterator<Item = &str> {
-        let inner = if let Some(buf) = self.meta() {
-            if let Some(refs) = meta::get_root_as_meta(buf).refs() {
-                Some(refs.iter())
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        inner.into_iter().flatten()
+        self.meta()
+            .into_iter()
+            .flat_map(|buf| meta::get_root_as_meta(buf).refs())
+            .flatten()
     }
 
     pub fn meta(&self) -> Option<&[u8]> {
