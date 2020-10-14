@@ -18,8 +18,9 @@ pub struct Operation {
 pub fn apply(db_write: &mut db::Write, patch: &[Operation]) -> Result<(), PatchError> {
     use PatchError::*;
     for op in patch.iter() {
-        // Special case `{"op": "replace", "path": "", "value": {}}` which means
-        // replace the root with a new map, in other words, clear the map.
+        // Special case `{"op": "replace", "path": "", "valueString": "{}"}`
+        // which means replace the root with a new map, in other words, clear
+        // the map.
         if op.path.is_empty() {
             if op.op == OP_REPLACE && op.value_string == "{}" {
                 db_write.clear();
