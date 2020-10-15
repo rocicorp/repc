@@ -18,4 +18,4 @@ pub use commit::{
 };
 pub use read::{read_commit, OwnedRead, Read, ReadCommitError, ScanError, Whence};
 pub use scan::{ScanBound, ScanKey, ScanOptions};
-pub use write::{init_db, CommitError, CreateIndexError, DelError, InitDBError, PutError, Write};
+pub use write::{init_db, CommitError, CreateIndexError, DelError, DropIndexError, InitDBError, PutError, Write};

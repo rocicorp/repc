@@ -226,6 +226,7 @@ async fn execute<'a, 'b>(
         "put" => return to_js(do_put(write, from_js(data)?).await),
         "del" => return to_js(do_del(write, from_js(data)?).await),
         "createIndex" => return to_js(do_create_index(write, from_js(data)?).await),
+        "dropIndex" => return to_js(do_drop_index(write, from_js(data)?).await),
         _ => (),
     }
 
@@ -511,6 +512,18 @@ async fn do_create_index(
         .await
         .map_err(DBError)?;
     Ok(CreateIndexResponse {})
+}
+
+async fn do_drop_index(
+    write: &mut db::Write<'_>,
+    req: DropIndexRequest,
+) -> Result<DropIndexResponse, DropIndexError> {
+    use DropIndexError::*;
+    write
+        .drop_index(&req.name)
+        .await
+        .map_err(DBError)?;
+    Ok(DropIndexResponse {})
 }
 
 async fn do_begin_sync<'a, 'b>(

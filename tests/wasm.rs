@@ -362,7 +362,7 @@ async fn test_get_put_del() {
 }
 
 #[wasm_bindgen_test]
-async fn test_create_index() {
+async fn test_index() {
     let db = &random_db();
     assert_eq!(dispatch::<_, String>(db, "open", "").await.unwrap(), "");
 
@@ -384,6 +384,42 @@ async fn test_create_index() {
     .unwrap();
 
     commit(db, transaction_id).await;
+
+    // TODO ensure the index can be used.
+
+    // Check that drop works.
+    let transaction_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
+        .await
+        .transaction_id;
+    dispatch::<_, DropIndexResponse>(
+        db,
+        "dropIndex",
+        DropIndexRequest {
+            transaction_id,
+            name: str!("idx1"),
+        },
+    )
+    .await
+    .unwrap();
+    commit(db, transaction_id).await;
+
+    // TODO ensure that index can NOT be used.
+
+    // Check that dropping a non-existent index errors.
+    let transaction_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
+        .await
+        .transaction_id;
+    let result = dispatch::<_, DropIndexResponse>(
+        db,
+        "dropIndex",
+        DropIndexRequest {
+            transaction_id,
+            name: str!("idx1"),
+        },
+    )
+    .await.unwrap_err();
+    assert_eq!(str!("DBError(NoSuchIndexError(\"idx1\"))"), result);
+    abort(db, transaction_id).await;
 
     assert_eq!(dispatch::<_, String>(db, "close", "").await.unwrap(), "");
 }

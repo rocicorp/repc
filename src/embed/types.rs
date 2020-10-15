@@ -208,3 +208,18 @@ pub struct CreateIndexResponse {}
 pub enum CreateIndexError {
     DBError(db::CreateIndexError),
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DropIndexRequest {
+    #[serde(rename = "transactionId")]
+    pub transaction_id: u32,
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+pub struct DropIndexResponse {}
+
+#[derive(Debug)]
+pub enum DropIndexError {
+    DBError(db::DropIndexError),
+}

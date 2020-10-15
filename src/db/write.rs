@@ -233,6 +233,14 @@ impl<'a> Write<'a> {
         Ok(())
     }
 
+    pub async fn drop_index(&mut self, name: &str) -> Result<(), DropIndexError> {
+        use DropIndexError::*;
+        match self.indexes.remove(name) {
+            None => Err(NoSuchIndexError(name.to_string())),
+            Some(_) => Ok(()),
+        }
+    }
+
     // Return value is the hash of the new commit.
     #[allow(clippy::too_many_arguments)]
     pub async fn commit(
@@ -315,6 +323,11 @@ impl<'a> Write<'a> {
 pub enum CreateIndexError {
     IndexError((String, Vec<u8>, index::IndexValueError)),
     FlushError(prolly::FlushError),
+}
+
+#[derive(Debug)]
+pub enum DropIndexError {
+    NoSuchIndexError(String),
 }
 
 #[derive(Debug)]
@@ -439,7 +452,7 @@ mod tests {
     }
 
     #[async_std::test]
-    async fn test_create_index() {
+    async fn test_create_and_drop_index() {
         async fn test(separate_commits: bool) {
             let ds = dag::Store::new(Box::new(MemStore::new()));
             init_db(
@@ -484,7 +497,10 @@ mod tests {
                 .unwrap();
             }
 
-            w.create_index("i1", "".as_bytes(), "/s").await.unwrap();
+            let index_name = "i1";
+            w.create_index(index_name, "".as_bytes(), "/s")
+                .await
+                .unwrap();
             w.commit(db::DEFAULT_HEAD_NAME, "local_create_date")
                 .await
                 .unwrap();
@@ -499,7 +515,7 @@ mod tests {
             let indexes = c.indexes();
             assert_eq!(indexes.len(), 1);
             let idx = &indexes[0];
-            assert_eq!(idx.definition.name, "i1");
+            assert_eq!(idx.definition.name, index_name);
             assert!(idx.definition.key_prefix.is_empty());
             assert_eq!(idx.definition.json_pointer, "/s");
             let idx_map = prolly::Map::load(&idx.value_hash, &owned_read.read())
@@ -518,7 +534,33 @@ mod tests {
                     .as_slice()
                 );
             }
+            drop(owned_read);
+
+            // Ensure drop works.
+            w = Write::new_local(
+                Whence::Head(str!(db::DEFAULT_HEAD_NAME)),
+                str!("some_mutator_name"),
+                serde_json::Value::Array(vec![]).to_string(),
+                None,
+                ds.write(LogContext::new()).await.unwrap(),
+            )
+            .await
+            .unwrap();
+            w.drop_index(index_name).await.unwrap();
+            w.commit(db::DEFAULT_HEAD_NAME, "local_create_date")
+                .await
+                .unwrap();
+            let owned_read = ds.read(LogContext::new()).await.unwrap();
+            let (_, c, _) = read::read_commit(
+                Whence::Head(str!(db::DEFAULT_HEAD_NAME)),
+                &owned_read.read(),
+            )
+            .await
+            .unwrap();
+            let indexes = c.indexes();
+            assert_eq!(indexes.len(), 0);
         }
+
         test(false).await;
         test(true).await;
         test(true).await;

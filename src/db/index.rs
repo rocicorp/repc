@@ -10,12 +10,12 @@ use serde_json::Value;
 // - why are numbers sorted backward in sample app?
 //   - double-check (perhaps in unit test) that our keys sort correctly
 // - measure perf
-// - implement dropIndex
 // - creating existing index should be fast nop
 // - share w/ cron
 // ===
 // - index definition does not need name
 // - add unit test for scan
+// - enable wasm dispatch test for scan (currently commented out; see also TODOs in test_index)
 // - load primary map lazily too
 // - evaluate json pointer more efficiently
 // - take a pass through to see what can be parallelized
@@ -56,6 +56,8 @@ impl Index {
         })
     }
 
+    // Note: does not update self.meta.value_hash (doesn't need to at this point as flush
+    // is only called during commit.)
     pub async fn flush(&self, write: &mut dag::Write<'_>) -> Result<String, IndexFlushError> {
         use IndexFlushError::*;
         let mut guard = self.map.write().await;
