@@ -88,6 +88,10 @@ impl Leaf {
         root.entries().unwrap().get(idx)
     }
 
+    // binary_search is not implemented in such a way that it can be reused for
+    // flatbuffers::Vector (AFAICT). Copy the code and modify it to work on
+    // flatbuffers::Vector.
+    // TODO(arv): License
     pub fn binary_search(&self, key: &[u8]) -> Result<usize, usize> {
         let root = leaf::get_root_as_leaf(self.chunk.data());
         let v = match root.entries() {
@@ -107,6 +111,7 @@ impl Leaf {
             // mid >= 0: by definition
             // mid < size: mid = size / 2 + size / 4 + size / 8 ...
             let entry = v.get(mid);
+            // No way that key can be None.
             let cmp = entry.key().unwrap().cmp(key);
             base = if cmp == Ordering::Greater { base } else { mid };
             size -= half;
