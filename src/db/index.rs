@@ -10,7 +10,6 @@ use serde_json::Value;
 // - why are numbers sorted backward in sample app?
 //   - double-check (perhaps in unit test) that our keys sort correctly
 // - measure perf
-// - creating existing index should be fast nop
 // - share w/ cron
 // ===
 // - index definition does not need name

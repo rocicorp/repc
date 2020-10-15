@@ -193,8 +193,18 @@ impl<'a> Write<'a> {
         key_prefix: &[u8],
         json_pointer: &str,
     ) -> Result<(), CreateIndexError> {
-        // TODO: This should be a nop if the specified index already exists.
         use CreateIndexError::*;
+
+        // Check to see if the index already exists.
+        if let Some(index) = self.indexes.get(name) {
+            if index.meta.definition.key_prefix == key_prefix
+                && index.meta.definition.json_pointer == json_pointer
+            {
+                return Ok(());
+            }
+            return Err(IndexExistsWithDifferentDefinition);
+        }
+
         let mut index_map = prolly::Map::new();
         for entry in scan::scan(
             &self.map,
@@ -321,8 +331,9 @@ impl<'a> Write<'a> {
 
 #[derive(Debug)]
 pub enum CreateIndexError {
-    IndexError((String, Vec<u8>, index::IndexValueError)),
     FlushError(prolly::FlushError),
+    IndexError((String, Vec<u8>, index::IndexValueError)),
+    IndexExistsWithDifferentDefinition,
 }
 
 #[derive(Debug)]

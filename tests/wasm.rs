@@ -369,7 +369,6 @@ async fn test_index() {
     let transaction_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
         .await
         .transaction_id;
-
     dispatch::<_, CreateIndexResponse>(
         db,
         "createIndex",
@@ -382,8 +381,26 @@ async fn test_index() {
     )
     .await
     .unwrap();
-
     commit(db, transaction_id).await;
+
+    // Ensure we can't create an index of the same name with different definition.
+    let transaction_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
+        .await
+        .transaction_id;
+    let response = dispatch::<_, CreateIndexResponse>(
+        db,
+        "createIndex",
+        CreateIndexRequest {
+            transaction_id,
+            name: str!("idx1"),
+            key_prefix: str!("DIFFERENT"),
+            json_pointer: str!("/ALSO-DIFFERENT"),
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!("DBError(IndexExistsWithDifferentDefinition)", response);
+    abort(db, transaction_id).await;
 
     // TODO ensure the index can be used.
 
