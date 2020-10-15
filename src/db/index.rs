@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 // TODO:
-// - use binding in js
-// - manual test
+// - why are numbers sorted backward in sample app?
+//   - double-check (perhaps in unit test) that our keys sort correctly
 // - measure perf
 // - implement dropIndex
 // - creating existing index should be fast nop
