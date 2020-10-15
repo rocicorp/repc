@@ -116,8 +116,18 @@ impl<'a> Read<'a> {
             opts: super::ScanOptions<'a>,
             callback: impl Fn(prolly::Entry<'_>),
         ) {
-            for thing in super::scan::scan(map, opts) {
-                callback(thing)
+            let use_index = opts.index_name.is_some();
+            for mut thing in super::scan::scan(map, opts) {
+                // TODO: It would be nice to return either the primary or secondary key,
+                // but decoding it is kind of a bitch. Cannot return composite key because it
+                // isn't a valid string!
+                if use_index {
+                    thing = prolly::Entry {
+                        key: &[],
+                        val: thing.val,
+                    }
+                }
+                callback(thing);
             }
         }
         match opts.index_name {
