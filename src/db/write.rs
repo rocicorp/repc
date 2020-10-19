@@ -156,7 +156,6 @@ impl<'a> Write<'a> {
 
     pub async fn del(&mut self, key: Vec<u8>) -> Result<(), DelError> {
         use DelError::*;
-        // boooo copy (needed to appease borrowck)
         let old_val = self.map.get(&key);
         match old_val {
             None => {}
