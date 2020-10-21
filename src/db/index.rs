@@ -151,9 +151,33 @@ fn get_index_entries(
     let value: Value = serde_json::from_slice(val).map_err(|e| DeserializeError(e.to_string()))?;
     let target = value.pointer(json_pointer);
 
-    fn entry(secondary: IndexValue, primary: &[u8]) -> Result<Vec<u8>, GetIndexEntriesError> {
+    fn entry_bytes(secondary: IndexValue, primary: &[u8]) -> Result<Vec<u8>, GetIndexEntriesError> {
         let key = IndexKey { secondary, primary };
         Ok(bytekey::serialize(&key).map_err(|e| SerializeIndexEntryError(e.to_string()))?)
+    }
+
+    fn single_entry(target: &Value, primary: &[u8]) -> Result<Vec<u8>, GetIndexEntriesError> {
+        Ok(match target {
+            Value::Bool(v) => entry_bytes(IndexValue::Bool(*v), primary)?,
+            Value::Number(v) => entry_bytes(
+                IndexValue::F64(v.as_f64().ok_or(ConvertNumberError)?),
+                primary,
+            )?,
+            Value::String(v) => entry_bytes(IndexValue::Str(&v), primary)?,
+            _ => return Err(UnsupportedTargetType),
+        })
+    }
+    fn entry(target: &Value, primary: &[u8]) -> Result<Vec<Vec<u8>>, GetIndexEntriesError> {
+        Ok(match target {
+            Value::Array(v) => {
+                let mut res = Vec::new();
+                for vv in v {
+                    res.push(single_entry(vv, primary)?);
+                }
+                res
+            }
+            _ => vec![single_entry(target, primary)?],
+        })
     }
 
     if target.is_none() {
@@ -161,13 +185,7 @@ fn get_index_entries(
     }
 
     let target = target.unwrap();
-    Ok(vec![match target {
-        // TODO: Support returning more than one value
-        Value::Bool(v) => entry(IndexValue::Bool(*v), key)?,
-        Value::Number(v) => entry(IndexValue::F64(v.as_f64().ok_or(ConvertNumberError)?), key)?,
-        Value::String(v) => entry(IndexValue::Str(&v), key)?,
-        _ => return Err(UnsupportedTargetType),
-    }])
+    entry(target, key)
 }
 
 #[cfg(test)]
@@ -295,12 +313,6 @@ mod tests {
         // unsupported target types
         test(
             "k",
-            &serde_json::to_vec(&json!({"unsupported": []})).unwrap(),
-            "/unsupported",
-            Err(UnsupportedTargetType),
-        );
-        test(
-            "k",
             &serde_json::to_vec(&json!({"unsupported": {}})).unwrap(),
             "/unsupported",
             Err(UnsupportedTargetType),
@@ -375,6 +387,36 @@ mod tests {
                 secondary: IndexValue::Str("bar"),
                 primary: "/! ".as_bytes(),
             }]),
+        );
+        test(
+            "k",
+            &serde_json::to_vec(&json!({"foo": []})).unwrap(),
+            "/foo",
+            Ok(vec![]),
+        );
+        test(
+            "k",
+            &serde_json::to_vec(&json!({"foo": ["bar"]})).unwrap(),
+            "/foo",
+            Ok(vec![IndexKey {
+                secondary: IndexValue::Str("bar"),
+                primary: "k".as_bytes(),
+            }]),
+        );
+        test(
+            "k",
+            &serde_json::to_vec(&json!({"foo": ["bar", "baz"]})).unwrap(),
+            "/foo",
+            Ok(vec![
+                IndexKey {
+                    secondary: IndexValue::Str("bar"),
+                    primary: "k".as_bytes(),
+                },
+                IndexKey {
+                    secondary: IndexValue::Str("baz"),
+                    primary: "k".as_bytes(),
+                },
+            ]),
         );
     }
 
