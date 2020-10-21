@@ -74,7 +74,9 @@ features = [
     "RequestInit",
     "RequestMode",
     "Response",
-    "Window",
+    
+    # Do not add Window since we want repc to work in a Worker.
+    # "Window",
 ]
 
 [lib]
