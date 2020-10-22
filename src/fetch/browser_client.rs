@@ -112,9 +112,13 @@ fn fetch_with_request(req: &web_sys::Request) -> Result<Promise, FetchError> {
 
     let global = js_sys::global();
     let key = JsValue::from_str("fetch");
-    let js_fetch: Function = Reflect::get(&global, &key)?.dyn_into()?;
-    js_fetch
-        .call1(&JsValue::undefined(), req)?
+    let js_fetch: Function = Reflect::get(&global, &key)
+        .map_err(NoFetch)?
         .dyn_into()
-        .map_err(InvalidResponseFromJs)
+        .map_err(NoFetch)?;
+    js_fetch
+        .call1(&JsValue::undefined(), req)
+        .map_err(FetchFailed)?
+        .dyn_into()
+        .map_err(FetchFailed)
 }

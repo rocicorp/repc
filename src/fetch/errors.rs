@@ -5,20 +5,16 @@ use wasm_bindgen::JsValue;
 // FetchError is lossy of the error types underneath: it holds an error string.
 #[derive(Debug)]
 pub enum FetchError {
-    ErrorReadingResponseBodyAsString(String),
     ErrorReadingResponseBody(String),
+    ErrorReadingResponseBodyAsString(String),
     FailedToWrapHttpResponse(String),
+    FetchFailed(JsValue),
     InvalidRequestBody(String),
     InvalidRequestHeader(String),
     InvalidResponseFromJs(JsValue),
+    NoFetch(JsValue),
     RequestFailed(String),
     RequestTimeout(async_std::future::TimeoutError),
     UnableToCreateRequest(String),
     UnableToSetRequestHeader(String),
-}
-
-impl From<JsValue> for FetchError {
-    fn from(err: JsValue) -> FetchError {
-        FetchError::InvalidResponseFromJs(err)
-    }
 }

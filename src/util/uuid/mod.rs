@@ -12,6 +12,7 @@ pub fn uuid() -> String {
 
 #[cfg(target_arch = "wasm32")]
 fn make_random_numbers(numbers: &mut [u8]) {
+    // TODO(arv): Return result instead of crashing.
     global_property::<web_sys::Crypto>("crypto")
         .expect("crypto is not available")
         .get_random_values_with_u8_array(numbers)
