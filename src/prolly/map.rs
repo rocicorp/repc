@@ -85,10 +85,10 @@ impl Map {
 
         match &self.base {
             None => None,
-            Some(leaf) => match leaf.binary_search(key) {
-                Ok(idx) => leaf.get_entry_by_index(idx).val(),
-                Err(_) => None,
-            },
+            Some(leaf) => leaf
+                .binary_search(key)
+                .map(|idx| leaf.get_entry_by_index(idx).val())
+                .ok(),
         }
     }
 

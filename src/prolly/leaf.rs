@@ -25,12 +25,10 @@ impl Leaf {
     pub fn load(chunk: Chunk) -> Result<Leaf, LoadError> {
         // Validate at load-time so we can assume data is valid thereafter.
         let root = leaf::get_root_as_leaf(chunk.data());
-        let entries = root
-            .entries()
-            .ok_or(LoadError::Corrupt("missing entries"))?;
+        let entries = root.entries();
         let mut prev: Option<&[u8]> = None;
         for e in entries {
-            if prev.is_some() {
+            if let Some(prev) = prev {
                 if prev == e.key() {
                     return Err(LoadError::Corrupt("duplicate key"));
                 }
@@ -38,13 +36,7 @@ impl Leaf {
                     return Err(LoadError::Corrupt("unsorted key"));
                 }
             }
-            if e.key().is_none() {
-                return Err(LoadError::Corrupt("missing key"));
-            }
-            if e.val().is_none() {
-                return Err(LoadError::Corrupt("missing val"));
-            }
-            prev = e.key();
+            prev = Some(e.key());
         }
 
         Ok(Leaf { chunk })
@@ -79,19 +71,19 @@ impl Leaf {
     pub fn iter(s: Option<&Self>) -> impl Iterator<Item = Entry<'_>> {
         let root = s.map(|leaf| leaf::get_root_as_leaf(leaf.chunk.data()));
         LeafIter {
-            fb_iter: root.and_then(|r| r.entries()).map(|e| e.iter()),
+            fb_iter: root.map(|r| r.entries().iter()),
         }
     }
 
     pub fn len(&self) -> usize {
         let root = leaf::get_root_as_leaf(self.chunk.data());
         // load validates that entries is not None.
-        root.entries().unwrap().len()
+        root.entries().len()
     }
 
     pub fn get_entry_by_index(&self, idx: usize) -> LeafEntry {
         let root = leaf::get_root_as_leaf(self.chunk.data());
-        root.entries().unwrap().get(idx)
+        root.entries().get(idx)
     }
 
     // binary_search is not implemented in such a way that it can be reused for
@@ -100,10 +92,7 @@ impl Leaf {
     // TODO(arv): License
     pub fn binary_search(&self, key: &[u8]) -> Result<usize, usize> {
         let root = leaf::get_root_as_leaf(self.chunk.data());
-        let v = match root.entries() {
-            None => return Err(0),
-            Some(v) => v,
-        };
+        let v = root.entries();
 
         let mut size = v.len();
         if size == 0 {
@@ -118,13 +107,13 @@ impl Leaf {
             // mid < size: mid = size / 2 + size / 4 + size / 8 ...
             let entry = v.get(mid);
             // No way that key can be None.
-            let cmp = entry.key().unwrap().cmp(key);
+            let cmp = entry.key().cmp(key);
             base = if cmp == Ordering::Greater { base } else { mid };
             size -= half;
         }
         // base is always in [0, size) because base <= mid.
         let entry = v.get(base);
-        let cmp = entry.key().unwrap().cmp(key);
+        let cmp = entry.key().cmp(key);
         if cmp == Ordering::Equal {
             Ok(base)
         } else {
@@ -156,8 +145,8 @@ impl<'a> From<leaf::LeafEntry<'a>> for Entry<'a> {
     fn from(leaf_entry: leaf::LeafEntry<'a>) -> Self {
         // load() validates that key and val are present.
         Entry {
-            key: leaf_entry.key().unwrap(),
-            val: leaf_entry.val().unwrap(),
+            key: leaf_entry.key(),
+            val: leaf_entry.val(),
         }
     }
 }
@@ -256,57 +245,36 @@ mod tests {
 
     #[test]
     fn load() {
-        fn test(kv: Option<Vec<Option<Vec<u8>>>>, expected: Result<Leaf, LoadError>) {
+        fn test(kv: Vec<Vec<u8>>, expected: Result<Leaf, LoadError>) {
             let chunk = make_leaf(kv);
             let actual = Leaf::load(chunk);
             assert_eq!(expected, actual);
         }
 
-        test(None, Err(LoadError::Corrupt("missing entries")));
         test(
-            vec![None, None].into(),
-            Err(LoadError::Corrupt("missing key")),
-        );
-        test(
-            vec![vec![].into(), None].into(),
-            Err(LoadError::Corrupt("missing val")),
-        );
-        test(
-            vec![vec![1].into(), vec![].into(), vec![1].into(), vec![].into()].into(),
+            vec![vec![1], vec![], vec![1], vec![]],
             Err(LoadError::Corrupt("duplicate key")),
         );
         test(
-            vec![vec![1].into(), vec![].into(), vec![0].into(), vec![].into()].into(),
+            vec![vec![1], vec![], vec![0], vec![]],
             Err(LoadError::Corrupt("unsorted key")),
         );
     }
 
-    fn make_leaf(kv: Option<Vec<Option<Vec<u8>>>>) -> Chunk {
+    fn make_leaf(kv: Vec<Vec<u8>>) -> Chunk {
         let mut builder = FlatBufferBuilder::default();
-        let mut entries: Option<
-            flatbuffers::WIPOffset<
-                flatbuffers::Vector<flatbuffers::ForwardsUOffset<leaf::LeafEntry>>,
-            >,
-        > = None;
-        if let Some(kv) = kv {
-            let mut temp = Vec::<flatbuffers::WIPOffset<leaf::LeafEntry>>::new();
-            for i in 0..kv.len() / 2 {
-                let key = &kv[i * 2];
-                let val = &kv[i * 2 + 1];
-                let mut args = leaf::LeafEntryArgs {
-                    key: None,
-                    val: None,
-                };
-                if let Some(key) = key {
-                    args.key = builder.create_vector(key.as_slice()).into();
-                }
-                if let Some(val) = val {
-                    args.val = builder.create_vector(val.as_slice()).into();
-                }
-                temp.push(leaf::LeafEntry::create(&mut builder, &args));
-            }
-            entries = builder.create_vector(temp.as_slice()).into();
+
+        let mut temp = Vec::<flatbuffers::WIPOffset<leaf::LeafEntry>>::new();
+        for i in 0..kv.len() / 2 {
+            let key = &kv[i * 2];
+            let val = &kv[i * 2 + 1];
+            let args = leaf::LeafEntryArgs {
+                key: builder.create_vector(key.as_slice()).into(),
+                val: builder.create_vector(val.as_slice()).into(),
+            };
+            temp.push(leaf::LeafEntry::create(&mut builder, &args));
         }
+        let entries = builder.create_vector(temp.as_slice()).into();
         let leaf = leaf::Leaf::create(&mut builder, &leaf::LeafArgs { entries });
         builder.finish(leaf, None);
         Chunk::new(builder.collapse(), vec![].as_slice())
