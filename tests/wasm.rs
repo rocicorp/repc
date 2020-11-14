@@ -305,13 +305,7 @@ async fn test_write_txs_dont_run_concurrently() {
             // inside of the transaction. One could imagine an implementation of open_transaction
             // that returns before the transaction has actually started.
             assert_eq!(0, counter.fetch_add(1, Ordering::SeqCst));
-            // If you are curious how long we actually spin here you can uncomment here and below:
-            // let performance = global_property::<web_sys::Performance>("performance")
-            //   .expect("performance should be available");
-            // let now_ms = performance.now();
             get(db, txn_id, "spin20").await; // Spins cpu *and yields* for ~20ms
-                                             // let elapsed_ms = performance.now() - now_ms;
-                                             // error!("YO: {}ms", elapsed_ms);
             put(db, txn_id, "value", &(value + 1).to_string()).await;
             // Asserting not strictly required but easy so why not:
             assert_eq!(1, counter.fetch_sub(1, Ordering::SeqCst));
