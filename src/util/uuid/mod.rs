@@ -10,7 +10,7 @@ pub enum UuidError {
 
 pub fn uuid() -> Result<String, UuidError> {
     let mut numbers = [0u8; 36];
-    make_random_numbers(&mut numbers)?;
+    let _ = make_random_numbers(&mut numbers)?;
     Ok(uuid_from_numbers(&numbers))
 }
 
