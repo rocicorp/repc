@@ -156,8 +156,7 @@ impl IdbStore {
 impl Store for IdbStore {
     async fn read<'a>(&'a self, lc: LogContext) -> Result<Box<dyn Read + 'a>> {
         let db_guard = self.db.read().await;
-        let tx = db_guard.transaction_with_str(OBJECT_STORE)?;
-        Ok(Box::new(ReadTransaction::new(db_guard, tx, lc)?))
+        Ok(Box::new(ReadTransaction::new(db_guard, lc)?))
     }
 
     async fn write<'a>(&'a self, lc: LogContext) -> Result<Box<dyn Write + 'a>> {
@@ -174,29 +173,26 @@ impl Store for IdbStore {
 }
 
 struct ReadTransaction<'a> {
-    _db: RwLockReadGuard<'a, IdbDatabase>, // Not referenced, holding lock.
-    tx: IdbTransaction,
+    db: RwLockReadGuard<'a, IdbDatabase>, // Not referenced, holding lock.
     lc: LogContext,
 }
 
 impl ReadTransaction<'_> {
-    fn new(
-        db: RwLockReadGuard<'_, IdbDatabase>,
-        tx: IdbTransaction,
-        lc: LogContext,
-    ) -> Result<ReadTransaction> {
-        Ok(ReadTransaction { _db: db, tx, lc })
+    fn new(db: RwLockReadGuard<'_, IdbDatabase>, lc: LogContext) -> Result<ReadTransaction> {
+        Ok(ReadTransaction { db, lc })
     }
 }
 
 #[async_trait(?Send)]
 impl Read for ReadTransaction<'_> {
     async fn has(&self, key: &str) -> Result<bool> {
-        has_impl(&self.tx, key, self.lc.clone()).await
+        let tx = self.db.transaction_with_str(OBJECT_STORE)?;
+        has_impl(&tx, key, self.lc.clone()).await
     }
 
     async fn get(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        get_impl(&self.tx, key, self.lc.clone()).await
+        let tx = self.db.transaction_with_str(OBJECT_STORE)?;
+        get_impl(&tx, key, self.lc.clone()).await
     }
 }
 
