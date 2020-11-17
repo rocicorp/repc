@@ -161,9 +161,7 @@ impl Store for IdbStore {
 
     async fn write<'a>(&'a self, lc: LogContext) -> Result<Box<dyn Write + 'a>> {
         let db_guard = self.db.write().await;
-        let tx = db_guard
-            .transaction_with_str_and_mode(OBJECT_STORE, web_sys::IdbTransactionMode::Readwrite)?;
-        Ok(Box::new(WriteTransaction::new(db_guard, tx, lc)?))
+        Ok(Box::new(WriteTransaction::new(db_guard, lc)?))
     }
 
     async fn close(&self) {
@@ -234,49 +232,20 @@ enum WriteState {
 }
 
 struct WriteTransaction<'a> {
-    _db: RwLockWriteGuard<'a, IdbDatabase>, // Not referenced, holding lock.
-    tx: IdbTransaction,
+    db: RwLockWriteGuard<'a, IdbDatabase>,
     pending: Mutex<HashMap<String, Option<Vec<u8>>>>,
     pair: Arc<(Mutex<WriteState>, Condvar)>,
-    callbacks: Vec<Closure<dyn FnMut()>>,
     lc: LogContext,
 }
 
-impl std::ops::Drop for WriteTransaction<'_> {
-    fn drop(&mut self) {
-        self.tx.set_oncomplete(None);
-        self.tx.set_onabort(None);
-        self.tx.set_onerror(None);
-    }
-}
-
 impl WriteTransaction<'_> {
-    fn new(
-        db: RwLockWriteGuard<'_, IdbDatabase>,
-        tx: IdbTransaction,
-        lc: LogContext,
-    ) -> Result<WriteTransaction> {
-        let mut wt = WriteTransaction {
-            _db: db,
-            tx,
+    fn new(db: RwLockWriteGuard<'_, IdbDatabase>, lc: LogContext) -> Result<WriteTransaction> {
+        let wt = WriteTransaction {
+            db,
             pair: Arc::new((Mutex::new(WriteState::Open), Condvar::new())),
             pending: Mutex::new(HashMap::new()),
-            callbacks: Vec::with_capacity(3),
             lc,
         };
-
-        let tx = &wt.tx;
-        let callback = wt.tx_callback(WriteState::Committed);
-        tx.set_oncomplete(Some(callback.as_ref().unchecked_ref()));
-        wt.callbacks.push(callback);
-
-        let callback = wt.tx_callback(WriteState::Aborted);
-        tx.set_onabort(Some(callback.as_ref().unchecked_ref()));
-        wt.callbacks.push(callback);
-
-        let callback = wt.tx_callback(WriteState::Errored);
-        tx.set_onerror(Some(callback.as_ref().unchecked_ref()));
-        wt.callbacks.push(callback);
 
         Ok(wt)
     }
@@ -300,7 +269,10 @@ impl Read for WriteTransaction<'_> {
         match self.pending.lock().await.get(key) {
             Some(Some(_)) => Ok(true),
             Some(None) => Ok(false),
-            None => has_impl(&self.tx, key, self.lc.clone()).await,
+            None => {
+                let tx = self.db.transaction_with_str(OBJECT_STORE)?;
+                has_impl(&tx, key, self.lc.clone()).await
+            }
         }
     }
 
@@ -308,7 +280,10 @@ impl Read for WriteTransaction<'_> {
         match self.pending.lock().await.get(key) {
             Some(Some(v)) => Ok(Some(v.to_vec())),
             Some(None) => Ok(None),
-            None => get_impl(&self.tx, key, self.lc.clone()).await,
+            None => {
+                let tx = self.db.transaction_with_str(OBJECT_STORE)?;
+                get_impl(&tx, key, self.lc.clone()).await
+            }
         }
     }
 }
@@ -344,7 +319,19 @@ impl Write for WriteTransaction<'_> {
             return Ok(());
         }
 
-        let store = self.tx.object_store(OBJECT_STORE)?;
+        let tx = self
+            .db
+            .transaction_with_str_and_mode(OBJECT_STORE, web_sys::IdbTransactionMode::Readwrite)?;
+
+        let committed_callback = self.tx_callback(WriteState::Committed);
+        tx.set_oncomplete(Some(committed_callback.as_ref().unchecked_ref()));
+        let aborted_callback = self.tx_callback(WriteState::Aborted);
+        tx.set_onabort(Some(aborted_callback.as_ref().unchecked_ref()));
+        let errored_callback = self.tx_callback(WriteState::Errored);
+        tx.set_onerror(Some(errored_callback.as_ref().unchecked_ref()));
+
+        let store = tx.object_store(OBJECT_STORE)?;
+        // callbacks is only used to keep the closures alive...
         let mut callbacks = Vec::with_capacity(pending.len());
         let mut requests: Vec<oneshot::Receiver<()>> = Vec::with_capacity(pending.len());
         for (key, value) in pending.iter() {
@@ -363,7 +350,7 @@ impl Write for WriteTransaction<'_> {
         let state = cv
             .wait_until(lock.lock().await, |state| *state != WriteState::Open)
             .await;
-        if let Some(e) = self.tx.error() {
+        if let Some(e) = tx.error() {
             return Err(to_debug(e).into());
         }
         if *state != WriteState::Committed {
@@ -373,28 +360,7 @@ impl Write for WriteTransaction<'_> {
     }
 
     async fn rollback(self: Box<Self>) -> Result<()> {
-        // Define rollback() to succeed if no writes have occurred, even if
-        // the underlying transaction has exited.
-        if self.pending.lock().await.is_empty() {
-            return Ok(());
-        }
-
-        let (lock, cv) = &*self.pair;
-        match *lock.lock().await {
-            WriteState::Committed | WriteState::Aborted => return Ok(()),
-            _ => (),
-        }
-
-        self.tx.abort()?;
-        let state = cv
-            .wait_until(lock.lock().await, |state| *state != WriteState::Open)
-            .await;
-        if let Some(e) = self.tx.error() {
-            return Err(to_debug(e).into());
-        }
-        if *state != WriteState::Aborted {
-            return Err(StoreError::Str("Transaction abort failed".into()));
-        }
+        // We do not do any writes outside of commit so there is nothing to do in a rollback.
         Ok(())
     }
 }
