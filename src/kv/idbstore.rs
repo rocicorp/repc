@@ -234,7 +234,6 @@ enum WriteState {
 struct WriteTransaction<'a> {
     db: RwLockWriteGuard<'a, IdbDatabase>,
     pending: Mutex<HashMap<String, Option<Vec<u8>>>>,
-    pair: Arc<(Mutex<WriteState>, Condvar)>,
     lc: LogContext,
 }
 
@@ -242,7 +241,6 @@ impl WriteTransaction<'_> {
     fn new(db: RwLockWriteGuard<'_, IdbDatabase>, lc: LogContext) -> Result<WriteTransaction> {
         let wt = WriteTransaction {
             db,
-            pair: Arc::new((Mutex::new(WriteState::Open), Condvar::new())),
             pending: Mutex::new(HashMap::new()),
             lc,
         };
@@ -250,8 +248,10 @@ impl WriteTransaction<'_> {
         Ok(wt)
     }
 
-    fn tx_callback(&self, new_state: WriteState) -> Closure<dyn FnMut()> {
-        let pair = self.pair.clone();
+    fn tx_callback(
+        pair: Arc<(Mutex<WriteState>, Condvar)>,
+        new_state: WriteState,
+    ) -> Closure<dyn FnMut()> {
         Closure::once(move || {
             task::block_on(async move {
                 let (lock, cv) = &*pair;
@@ -323,11 +323,13 @@ impl Write for WriteTransaction<'_> {
             .db
             .transaction_with_str_and_mode(OBJECT_STORE, web_sys::IdbTransactionMode::Readwrite)?;
 
-        let committed_callback = self.tx_callback(WriteState::Committed);
+        // TODO: This Mutex and Condvar is now overkill. These callbacks are mutually exclusive!
+        let pair = Arc::new((Mutex::new(WriteState::Open), Condvar::new()));
+        let committed_callback = WriteTransaction::tx_callback(pair.clone(), WriteState::Committed);
         tx.set_oncomplete(Some(committed_callback.as_ref().unchecked_ref()));
-        let aborted_callback = self.tx_callback(WriteState::Aborted);
+        let aborted_callback = WriteTransaction::tx_callback(pair.clone(), WriteState::Aborted);
         tx.set_onabort(Some(aborted_callback.as_ref().unchecked_ref()));
-        let errored_callback = self.tx_callback(WriteState::Errored);
+        let errored_callback = WriteTransaction::tx_callback(pair.clone(), WriteState::Errored);
         tx.set_onerror(Some(errored_callback.as_ref().unchecked_ref()));
 
         let store = tx.object_store(OBJECT_STORE)?;
@@ -346,7 +348,7 @@ impl Write for WriteTransaction<'_> {
         }
         join_all(requests).await;
 
-        let (lock, cv) = &*self.pair;
+        let (lock, cv) = &*pair;
         let state = cv
             .wait_until(lock.lock().await, |state| *state != WriteState::Open)
             .await;
