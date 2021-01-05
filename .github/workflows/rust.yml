@@ -78,6 +78,9 @@ jobs:
       - run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - run: sudo apt-get install brotli
       - run: ./tool/release.sh
+      - uses: srt32/git-actions@v0.0.3
+      - with:
+        args: 'git restore Cargo.toml'
       - uses: chrysanthos/simple-asset-size-reporter@1.0.0
         with:
           repo-token: '${{ secrets.GITHUB_TOKEN }}'
