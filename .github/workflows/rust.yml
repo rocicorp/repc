@@ -67,3 +67,20 @@ jobs:
       with:
         name: wasm-size.txt
         path: wasm-size.txt
+
+  wasmsize2:
+    name: Wasm Size 2
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+    - run: sudo apt-get install brotli
+    - run: ./tool/release.sh
+    - uses: chrysanthos/simple-asset-size-reporter@1.0.0
+      with:
+        repo-token: "${{ secrets.GITHUB_TOKEN }}"
+        files: '["pkg/release/*.wasm"]'
+        with-same: 'false'
+        build-assets: 'true'
