@@ -2,9 +2,9 @@ name: Rust
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
-    branches: [ master ]
+    branches: [master]
 
 env:
   CARGO_TERM_COLOR: always
@@ -14,73 +14,73 @@ jobs:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - run: cargo fmt -- --check
+      - uses: actions/checkout@v2
+      - run: cargo fmt -- --check
 
   warnings:
     name: Warnings
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - run: cargo rustc -- -D warnings
-    - run: cargo clippy -- -D warnings
+      - uses: actions/checkout@v2
+      - run: cargo rustc -- -D warnings
+      - run: cargo clippy -- -D warnings
 
   tests:
     name: Cargo Test
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - run: cargo test --verbose
+      - uses: actions/checkout@v2
+      - run: cargo test --verbose
 
   wasmtest:
     name: Wasm Test
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-    - run: wasm-pack test --chrome --headless
+      - uses: actions/checkout@v2
+      - run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - run: wasm-pack test --chrome --headless
 
   wasmbench:
     name: Wasm Bench
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-    - run: ./tool/benchmark | tee > wasm-bench.txt
-    - uses: actions/upload-artifact@v2
-      with:
-        name: wasm-bench.txt
-        path: wasm-bench.txt
+      - uses: actions/checkout@v2
+      - run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - run: ./tool/benchmark | tee > wasm-bench.txt
+      - uses: actions/upload-artifact@v2
+        with:
+          name: wasm-bench.txt
+          path: wasm-bench.txt
 
-  wasmsize:
-    name: Wasm Size
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
-      with:
-        fetch-depth: 0
-    - run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-    - run: sudo apt-get install brotli
-    - run: ./tool/release.sh
-    - run: ./tool/release.sh --report > wasm-size.txt
-    - uses: actions/upload-artifact@v2
-      with:
-        name: wasm-size.txt
-        path: wasm-size.txt
+  # wasmsize:
+  #   name: Wasm Size
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #   - uses: actions/checkout@v2
+  #     with:
+  #       fetch-depth: 0
+  #   - run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+  #   - run: sudo apt-get install brotli
+  #   - run: ./tool/release.sh
+  #   - run: ./tool/release.sh --report > wasm-size.txt
+  #   - uses: actions/upload-artifact@v2
+  #     with:
+  #       name: wasm-size.txt
+  #       path: wasm-size.txt
 
   wasmsize2:
     name: Wasm Size 2
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-      with:
-        fetch-depth: 0
-    - run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-    - run: sudo apt-get install brotli
-    - run: ./tool/release.sh
-    - uses: chrysanthos/simple-asset-size-reporter@1.0.0
-      with:
-        repo-token: "${{ secrets.GITHUB_TOKEN }}"
-        files: '["pkg/release/*.wasm"]'
-        with-same: 'false'
-        build-assets: 'true'
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - run: sudo apt-get install brotli
+      - run: ./tool/release.sh
+      - uses: chrysanthos/simple-asset-size-reporter@1.0.0
+        with:
+          repo-token: '${{ secrets.GITHUB_TOKEN }}'
+          files: '["pkg/release/*.wasm"]'
+          with-same: 'false'
+          build-assets: 'true'
