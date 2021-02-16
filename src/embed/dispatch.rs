@@ -1,7 +1,6 @@
 use crate::dag;
 use crate::embed::connection;
-use crate::kv::idbstore::IdbStore;
-use crate::kv::Store;
+use crate::kv::memstore::MemStore;
 use crate::sync;
 use crate::util::rlog;
 use crate::util::rlog::LogContext;
@@ -114,15 +113,7 @@ async fn do_open(conns: &mut ConnMap, req: &Request) -> Response {
         return Ok("".into());
     }
 
-    let kv: Box<dyn Store> = match IdbStore::new(&req.db_name[..]).await {
-        Err(e) => {
-            return Err(JsValue::from_str(&format!(
-                "Failed to open \"{}\": {}",
-                req.db_name, e
-            )))
-        }
-        Ok(store) => Box::new(store),
-    };
+    let kv = Box::new(MemStore::new());
 
     let client_id = sync::client_id::init(kv.as_ref(), req.lc.clone())
         .await
