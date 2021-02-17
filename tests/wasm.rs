@@ -202,7 +202,7 @@ async fn abort(db_name: &str, transaction_id: u32) {
 
 #[wasm_bindgen_test]
 async fn test_open_close() {
-    for use_memstore in vec![None, Some(true), Some(false)] {
+    for use_memstore in vec![true, false] {
         let open_req = OpenRequest { use_memstore };
         assert_eq!(
             dispatch::<_, String>("", "debug", "open_dbs")
@@ -260,7 +260,7 @@ async fn test_open_close() {
 
 #[wasm_bindgen_test]
 async fn test_concurrency_within_a_read_tx() {
-    for use_memstore in vec![Some(true), Some(false)] {
+    for use_memstore in vec![true, false] {
         let db = &random_db();
         let performance = global_property::<web_sys::Performance>("performance")
             .expect("performance should be available");
@@ -297,7 +297,7 @@ async fn test_concurrency_within_a_read_tx() {
 // TODO if/when we have a rust version of dispatch again we should have a much
 // cleaner version of this test there (eg, no spin hack, greater concurrency).
 async fn test_write_txs_dont_run_concurrently() {
-    for use_memstore in vec![Some(true), Some(false)] {
+    for use_memstore in vec![true, false] {
         let db = &random_db();
 
         dispatch::<_, String>(db, "open", OpenRequest { use_memstore })
@@ -386,7 +386,7 @@ async fn test_write_txs_dont_run_concurrently() {
 
 #[wasm_bindgen_test]
 async fn test_read_txs_do_run_concurrently() {
-    for use_memstore in vec![Some(true), Some(false)] {
+    for use_memstore in vec![true, false] {
         let db = &random_db();
 
         dispatch::<_, String>(db, "open", OpenRequest { use_memstore })
@@ -460,7 +460,7 @@ async fn test_read_txs_do_run_concurrently() {
 
 #[wasm_bindgen_test]
 async fn test_get_put_del() {
-    for use_memstore in vec![Some(true), Some(false)] {
+    for use_memstore in vec![true, false] {
         let db = &random_db();
 
         assert_eq!(
@@ -538,7 +538,7 @@ async fn test_get_put_del() {
 
 #[wasm_bindgen_test]
 async fn test_create_drop_index() {
-    for use_memstore in vec![Some(true), Some(false)] {
+    for use_memstore in vec![true, false] {
         let db = &random_db();
         assert_eq!(
             dispatch::<_, String>(db, "open", OpenRequest { use_memstore })
@@ -682,7 +682,7 @@ async fn test_scan() {
         exclusive: bool,
         expected: Vec<(&str, &str, &str)>,
     ) {
-        for use_memstore in vec![Some(true), Some(false)] {
+        for use_memstore in vec![true, false] {
             let expected: Vec<(String, String, String)> = expected
                 .iter()
                 .map(|v| (str!(v.0), str!(v.1), str!(v.2)))
@@ -839,7 +839,7 @@ async fn test_scan_with_index() {
         exclusive: bool,         // scan start_exclusive
         expected: Vec<(&str, &str, &str)>, // expected results of the scan
     ) {
-        for use_memstore in vec![Some(true), Some(false)] {
+        for use_memstore in vec![true, false] {
             let index_name = str!("idx1");
             let expected: Vec<(String, String, String)> = expected
                 .iter()
@@ -1291,7 +1291,7 @@ fn new_test_scan_receiver() -> (
 
 #[wasm_bindgen_test]
 async fn test_get_root() {
-    for use_memstore in vec![Some(true), Some(false)] {
+    for use_memstore in vec![true, false] {
         let db = &random_db();
         assert_eq!(
             format!(r#""{}" not open"#, db),
@@ -1336,9 +1336,15 @@ async fn test_set_log_level() {
     let level = log::max_level();
     let db = &random_db();
     assert_eq!(
-        dispatch::<_, String>(db, "open", OpenRequest { use_memstore: None })
-            .await
-            .unwrap(),
+        dispatch::<_, String>(
+            db,
+            "open",
+            OpenRequest {
+                use_memstore: false
+            }
+        )
+        .await
+        .unwrap(),
         ""
     );
 
