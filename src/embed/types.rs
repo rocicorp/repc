@@ -3,6 +3,12 @@
 use crate::db;
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct OpenRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_memstore: Option<bool>,
+}
+
 // Note: index transactions are closed or committed using the regular
 // (Commit|Close)Transaction RPC.
 #[derive(Debug, Deserialize, Serialize)]
