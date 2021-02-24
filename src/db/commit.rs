@@ -1,9 +1,7 @@
 use super::commit_generated::commit as commit_fb;
-use crate::checksum::Checksum;
 use crate::dag;
 use flatbuffers::FlatBufferBuilder;
 use std::collections::hash_set::HashSet;
-use std::str::FromStr;
 use str_macro::str;
 
 pub const DEFAULT_HEAD_NAME: &str = "main";
@@ -43,7 +41,6 @@ impl Commit {
     #![allow(clippy::too_many_arguments)]
     pub fn new_local(
         basis_hash: Option<&str>,
-        checksum: Checksum,
         mutation_id: u64,
         mutator_name: &str,
         mutator_args_json: &[u8],
@@ -62,7 +59,6 @@ impl Commit {
         Commit::new_impl(
             builder,
             basis_hash.map(Ref::Strong),
-            checksum,
             commit_fb::MetaTyped::LocalMeta,
             local_meta.as_union_value(),
             Ref::Strong(value_hash),
@@ -73,7 +69,6 @@ impl Commit {
 
     pub fn new_snapshot(
         basis_hash: Option<&str>,
-        checksum: Checksum,
         last_mutation_id: u64,
         server_state_id: &str,
         value_hash: &str,
@@ -88,7 +83,6 @@ impl Commit {
         Commit::new_impl(
             builder,
             basis_hash.map(Ref::Weak),
-            checksum,
             commit_fb::MetaTyped::SnapshotMeta,
             snapshot_meta.as_union_value(),
             Ref::Strong(value_hash),
@@ -99,7 +93,6 @@ impl Commit {
 
     pub fn new_index_change(
         basis_hash: Option<&str>,
-        checksum: Checksum,
         last_mutation_id: u64,
         value_hash: &str,
         indexes: &[IndexRecord],
@@ -111,7 +104,6 @@ impl Commit {
         Commit::new_impl(
             builder,
             basis_hash.map(Ref::Strong),
-            checksum,
             commit_fb::MetaTyped::IndexChangeMeta,
             index_change_meta.as_union_value(),
             Ref::Strong(value_hash),
@@ -194,8 +186,6 @@ impl Commit {
         let meta = root.meta().ok_or(MissingMeta)?;
 
         // basis_hash is optional -- the first commit lacks a basis
-        meta.checksum().ok_or(MissingChecksum)?;
-        Checksum::from_str(meta.checksum().unwrap()).map_err(|_| InvalidChecksum)?;
 
         match meta.typed_type() {
             commit_fb::MetaTyped::IndexChangeMeta => Commit::validate_index_change_meta(
@@ -283,7 +273,6 @@ impl Commit {
     fn new_impl(
         mut builder: FlatBufferBuilder,
         basis_hash: Option<Ref>,
-        checksum: Checksum,
         union_type: commit_fb::MetaTyped,
         union_value: flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>,
         value_hash: Ref,
@@ -292,7 +281,6 @@ impl Commit {
     ) -> Commit {
         let meta_args = &commit_fb::MetaArgs {
             basis_hash: basis_hash.map(|r| builder.create_string(r.hash())),
-            checksum: builder.create_string(&checksum.to_string()).into(),
             typed_type: union_type,
             typed: union_value.into(),
         };
@@ -438,9 +426,6 @@ impl<'a> Meta<'a> {
     pub fn basis_hash(&self) -> Option<&str> {
         self.fb.basis_hash()
     }
-    pub fn checksum(&self) -> &str {
-        self.fb.checksum().unwrap()
-    }
 
     pub fn typed(&self) -> MetaTyped {
         match self.fb.typed_type() {
@@ -539,11 +524,9 @@ pub struct IndexDefinition {
 
 #[derive(Debug, PartialEq)]
 pub enum LoadError {
-    InvalidChecksum,
     MissingMutatorName,
     MissingMutatorArgsJSON,
     MissingServerStateID,
-    MissingChecksum,
     MissingTyped,
     MissingMeta,
     MissingValueHash,
@@ -725,9 +708,6 @@ mod tests {
 
     #[test]
     fn load_roundtrip() {
-        let checksum = Checksum::from_str("12345678").unwrap();
-        let tmp = checksum.to_string();
-        let checksum_str = Some(tmp.as_ref());
         fn test(chunk: Chunk, expected: Result<Commit, LoadError>) {
             let actual = Commit::from_chunk(chunk);
             assert_eq!(expected, actual);
@@ -739,7 +719,6 @@ mod tests {
                         make_local_meta(b, 0, "".into(), Some(&[]), "original".into())
                     })),
                     *basis_hash,
-                    checksum_str,
                     "value".into(),
                     &(if basis_hash.is_none() {
                         vec!["value"]
@@ -750,7 +729,6 @@ mod tests {
                 ),
                 Ok(Commit::new_local(
                     *basis_hash,
-                    checksum,
                     0,
                     "",
                     &[],
@@ -766,7 +744,6 @@ mod tests {
                     make_local_meta(b, 0, None, Some(&[]), "".into())
                 })),
                 "".into(),
-                checksum_str,
                 "".into(),
                 &["", ""],
                 None,
@@ -779,7 +756,6 @@ mod tests {
                     make_local_meta(b, 0, "".into(), None, "".into())
                 })),
                 "".into(),
-                checksum_str,
                 "".into(),
                 &["", ""],
                 None,
@@ -793,7 +769,6 @@ mod tests {
                         make_local_meta(b, 0, "".into(), Some(&[]), None)
                     })),
                     *basis_hash,
-                    checksum_str,
                     "".into(),
                     &(if basis_hash.is_none() {
                         vec![""]
@@ -804,7 +779,6 @@ mod tests {
                 ),
                 Ok(Commit::new_local(
                     *basis_hash,
-                    checksum,
                     0,
                     "",
                     &[],
@@ -821,33 +795,6 @@ mod tests {
                 })),
                 "".into(),
                 None,
-                "".into(),
-                &["", ""],
-                None,
-            ),
-            Err(LoadError::MissingChecksum),
-        );
-        test(
-            make_commit(
-                Some(Box::new(|b: &mut FlatBufferBuilder| {
-                    make_local_meta(b, 0, "".into(), Some(&[]), "".into())
-                })),
-                "".into(),
-                "BOOM".into(),
-                "".into(),
-                &["", ""],
-                None,
-            ),
-            Err(LoadError::InvalidChecksum),
-        );
-        test(
-            make_commit(
-                Some(Box::new(|b: &mut FlatBufferBuilder| {
-                    make_local_meta(b, 0, "".into(), Some(&[]), "".into())
-                })),
-                "".into(),
-                "".into(),
-                None,
                 &["", ""],
                 None,
             ),
@@ -860,19 +807,11 @@ mod tests {
                         make_snapshot_meta(b, 0, "".into())
                     })),
                     *basis_hash,
-                    checksum_str,
                     "".into(),
                     &[""],
                     None,
                 ),
-                Ok(Commit::new_snapshot(
-                    *basis_hash,
-                    checksum,
-                    0,
-                    "",
-                    "",
-                    &vec![],
-                )),
+                Ok(Commit::new_snapshot(*basis_hash, 0, "", "", &vec![])),
             );
         }
         test(
@@ -881,7 +820,6 @@ mod tests {
                     make_snapshot_meta(b, 0, None)
                 })),
                 "".into(),
-                checksum_str,
                 "".into(),
                 &["", ""],
                 None,
@@ -896,7 +834,6 @@ mod tests {
                         make_index_change_meta(b, 0)
                     })),
                     *basis_hash,
-                    checksum_str,
                     "value".into(),
                     &(if basis_hash.is_none() {
                         vec!["value"]
@@ -905,13 +842,7 @@ mod tests {
                     }),
                     vec![].into(),
                 ),
-                Ok(Commit::new_index_change(
-                    *basis_hash,
-                    checksum,
-                    0,
-                    "value",
-                    &vec![],
-                )),
+                Ok(Commit::new_index_change(*basis_hash, 0, "value", &vec![])),
             );
         }
     }
@@ -929,7 +860,6 @@ mod tests {
                 )
             })),
             "basis_hash".into(),
-            "11111111".into(),
             "value_hash".into(),
             &["value_hash", "basis_hash"],
             None,
@@ -946,7 +876,6 @@ mod tests {
             _ => assert!(false),
         }
         assert_eq!(local.meta().basis_hash(), Some("basis_hash"));
-        assert_eq!(local.meta().checksum(), "11111111");
         assert_eq!(local.value_hash(), "value_hash");
         assert_eq!(local.next_mutation_id(), 2);
 
@@ -955,7 +884,6 @@ mod tests {
                 make_snapshot_meta(b, 2, "server_state_id 2".into())
             })),
             "basis_hash 2".into(),
-            "22222222".into(),
             "value_hash 2".into(),
             &["value_hash 2", "basis_hash 2"],
             None,
@@ -970,7 +898,6 @@ mod tests {
             _ => assert!(false),
         }
         assert_eq!(snapshot.meta().basis_hash(), Some("basis_hash 2"));
-        assert_eq!(snapshot.meta().checksum(), "22222222");
         assert_eq!(snapshot.value_hash(), "value_hash 2");
         assert_eq!(snapshot.next_mutation_id(), 3);
 
@@ -979,7 +906,6 @@ mod tests {
                 make_index_change_meta(b, 3)
             })),
             "basis_hash 3".into(),
-            "33".into(),
             "value_hash 3".into(),
             &["value_hash 3", "basis_hash 3"],
             None,
@@ -993,7 +919,6 @@ mod tests {
             _ => assert!(false),
         }
         assert_eq!(index_change.meta().basis_hash(), Some("basis_hash 3"));
-        assert_eq!(index_change.meta().checksum(), "33");
         assert_eq!(index_change.value_hash(), "value_hash 3");
         assert_eq!(index_change.mutation_id(), 3);
     }
@@ -1021,7 +946,6 @@ mod tests {
             >,
         >,
         basis_hash: Option<&str>,
-        checksum: Option<&str>,
         value_hash: Option<&str>,
         refs: &[&str],
         indexes: Option<Vec<MakeIndex>>,
@@ -1032,7 +956,6 @@ mod tests {
             typed_type: typed_meta.map_or(commit_fb::MetaTyped::NONE, |t| t.0),
             typed: typed_meta.map(|t| t.1),
             basis_hash: basis_hash.map(|s| builder.create_string(s)),
-            checksum: checksum.map(|s| builder.create_string(s)),
         };
         let meta = commit_fb::Meta::create(&mut builder, args);
 
