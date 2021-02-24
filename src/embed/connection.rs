@@ -189,9 +189,9 @@ async fn execute<'a, 'b>(
         "closeTransaction" => return to_js(do_close(ctx, from_js(data)?).await),
         "setLogLevel" => return to_js(do_set_log_level(ctx, from_js(data)?).await),
 
-        "push" => return to_js(do_try_push(ctx, from_js(data)?).await),
-        "beginPull" => return to_js(do_try_begin_pull(ctx, from_js(data)?).await),
-        "maybeEndPull" => return to_js(do_maybe_end_try_pull(ctx, from_js(data)?).await),
+        "tryPush" => return to_js(do_try_push(ctx, from_js(data)?).await),
+        "beginTryPull" => return to_js(do_begin_try_pull(ctx, from_js(data)?).await),
+        "maybeEndTryPull" => return to_js(do_maybe_end_try_pull(ctx, from_js(data)?).await),
 
         _ => (),
     };
@@ -674,7 +674,7 @@ async fn do_try_push<'a, 'b>(
     Ok(sync::TryPushResponse { batch_push_info })
 }
 
-async fn do_try_begin_pull<'a, 'b>(
+async fn do_begin_try_pull<'a, 'b>(
     ctx: Context<'a, 'b>,
     req: sync::TryBeginPullRequest,
 ) -> Result<sync::TryBeginPullResponse, sync::TryBeginPullError> {
