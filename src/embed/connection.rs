@@ -1,12 +1,12 @@
 use super::dispatch::Request;
 use super::types::*;
 use crate::dag;
-use crate::db;
 use crate::fetch;
 use crate::sync;
 use crate::util::rlog;
 use crate::util::rlog::LogContext;
 use crate::util::to_debug;
+use crate::{db, sync::push::push};
 use async_std::stream::StreamExt;
 use async_std::sync::{Receiver, RecvError, RwLock};
 use futures::stream::futures_unordered::FuturesUnordered;
@@ -669,15 +669,14 @@ async fn do_try_push<'a, 'b>(
     let sync_id = sync::sync_id::new(&ctx.client_id);
     ctx.lc.add_context("sync_id", &sync_id);
 
-    let batch_push_info =
-        sync::push(&sync_id, ctx.store, ctx.lc, ctx.client_id, &pusher, req).await?;
+    let batch_push_info = push(&sync_id, ctx.store, ctx.lc, ctx.client_id, &pusher, req).await?;
     Ok(sync::TryPushResponse { batch_push_info })
 }
 
 async fn do_begin_try_pull<'a, 'b>(
     ctx: Context<'a, 'b>,
     req: sync::TryBeginPullRequest,
-) -> Result<sync::TryBeginPullResponse, sync::TryBeginPullError> {
+) -> Result<sync::TryBeginPullResponse, sync::BeginTryPullError> {
     // TODO move client, pusher up to process() or into a lazy static so we can share.
     let fetch_client = fetch::client::Client::new();
     let puller = sync::FetchPuller::new(&fetch_client);
