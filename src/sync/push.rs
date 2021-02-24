@@ -119,8 +119,6 @@ pub enum PushError {
     SerializePushError(serde_json::error::Error),
 }
 
-/// Find pending commits between the base snapshot and the main head and push
-/// them to the data layer.
 pub async fn push(
     sync_id: &str,
     store: &dag::Store,
@@ -131,6 +129,8 @@ pub async fn push(
 ) -> Result<Option<BatchPushInfo>, TryPushError> {
     use TryPushError::*;
 
+    // Find pending commits between the base snapshot and the main head and push
+    // them to the data layer.
     let dag_read = store.read(lc.clone()).await.map_err(ReadError)?;
     let main_head_hash = dag_read
         .read()

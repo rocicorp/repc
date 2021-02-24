@@ -1,12 +1,13 @@
 use super::dispatch::Request;
 use super::types::*;
 use crate::dag;
+use crate::db;
 use crate::fetch;
 use crate::sync;
+use crate::sync::push::push;
 use crate::util::rlog;
 use crate::util::rlog::LogContext;
 use crate::util::to_debug;
-use crate::{db, sync::push::push};
 use async_std::stream::StreamExt;
 use async_std::sync::{Receiver, RecvError, RwLock};
 use futures::stream::futures_unordered::FuturesUnordered;
