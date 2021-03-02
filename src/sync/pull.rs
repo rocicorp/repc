@@ -126,9 +126,7 @@ pub async fn begin_pull(
     {
         let sync_head = str!("");
         return Ok(BeginTryPullResponse {
-            // TODO(arv) this should be replaced by whatever mechanism we have,
-            // possibly just hard-coding 200 here?
-            http_request_info: pull_resp.http_request_info,
+            http_request_info,
             sync_head,
             request_id,
         });
@@ -181,7 +179,7 @@ pub async fn begin_pull(
 
     Ok(BeginTryPullResponse {
         http_request_info: HttpRequestInfo {
-            http_status_code: 200,
+            http_status_code: http::StatusCode::OK.into(),
             error_message: str!(""),
         },
         sync_head: commit_hash,
@@ -439,6 +437,11 @@ mod tests {
         let request_id = "request_id";
         let path = "/pull";
 
+        let good_http_request_info = HttpRequestInfo {
+            http_status_code: http::StatusCode::OK.into(),
+            error_message: str!(""),
+        };
+
         struct Case<'a> {
             pub name: &'a str,
             pub resp_status: u16,
@@ -466,10 +469,7 @@ mod tests {
                         value: json!({}),
                     }],
                 }),
-                exp_http_request_info: HttpRequestInfo {
-                    http_status_code: http::StatusCode::OK.into(),
-                    error_message: str!(""),
-                },
+                exp_http_request_info: good_http_request_info.clone(),
             },
             Case {
                 name: "403",
@@ -489,10 +489,7 @@ mod tests {
                 exp_err: Some("\"expected ident\", line: 1, column: 2"),
                 exp_resp: None,
                 // Not used in when exp_err is Some
-                exp_http_request_info: HttpRequestInfo {
-                    http_status_code: http::StatusCode::OK.into(),
-                    error_message: str!(""),
-                },
+                exp_http_request_info: good_http_request_info.clone(),
             },
         ];
 
@@ -591,7 +588,7 @@ mod tests {
         let pull_url = str!("pull_url");
 
         let good_http_request_info = HttpRequestInfo {
-            http_status_code: 200,
+            http_status_code: http::StatusCode::OK.into(),
             error_message: str!(""),
         };
         // The good_pull_resp has a patch, a new cookie, and a new
