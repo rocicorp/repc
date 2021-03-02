@@ -60,25 +60,33 @@ pub async fn begin_pull(
     };
     debug!(lc, "Starting pull...");
     let pull_timer = rlog::Timer::new().map_err(InternalTimerError)?;
-    let pull_resp = puller
+    let (pull_resp, http_request_info) = puller
         .pull(&pull_req, &pull_url, &pull_auth, &request_id)
-        .await;
-    if let Err(PullError::FetchNotOk(status_code, body)) = pull_resp {
+        .await
+        .map_err(PullFailed)?;
+
+    debug!(
+        lc.clone(),
+        "...Pull {} in {}ms",
+        if pull_resp.is_some() {
+            "complete"
+        } else {
+            "failed"
+        },
+        pull_timer.elapsed_ms()
+    );
+
+    // If Puller did not get a pull response we still want to return the  HTTP
+    // request info to the JS SDK.
+    if pull_resp.is_none() {
         return Ok(BeginTryPullResponse {
-            http_request_info: HttpRequestInfo {
-                http_status_code: status_code.into(),
-                error_message: body,
-            },
+            http_request_info,
             sync_head: str!(""),
             request_id,
         });
     }
-    let pull_resp = pull_resp.map_err(PullFailed)?;
-    debug!(
-        lc.clone(),
-        "...Pull complete in {}ms",
-        pull_timer.elapsed_ms()
-    );
+
+    let pull_resp = pull_resp.unwrap();
 
     // It is possible that another sync completed while we were pulling. Ensure
     // that is not the case by re-checking the base snapshot.
@@ -313,7 +321,7 @@ pub trait Puller {
         ur: &str,
         auth: &str,
         request_id: &str,
-    ) -> Result<PullResponse, PullError>;
+    ) -> Result<(Option<PullResponse>, HttpRequestInfo), PullError>;
 }
 
 pub struct FetchPuller<'a> {
@@ -334,7 +342,7 @@ impl Puller for FetchPuller<'_> {
         url: &str,
         auth: &str,
         request_id: &str,
-    ) -> Result<PullResponse, PullError> {
+    ) -> Result<(Option<PullResponse>, HttpRequestInfo), PullError> {
         use PullError::*;
         let http_req = new_pull_http_request(pull_req, url, auth, request_id)?;
         let http_resp: http::Response<String> = self
@@ -342,13 +350,21 @@ impl Puller for FetchPuller<'_> {
             .request(http_req)
             .await
             .map_err(FetchFailed)?;
-        if http_resp.status() != http::StatusCode::OK {
-            return Err(PullError::FetchNotOk(
-                http_resp.status(),
-                http_resp.body().into(),
-            ));
-        }
-        Ok(serde_json::from_str(&http_resp.body()).map_err(InvalidResponse)?)
+        let ok = http_resp.status() == http::StatusCode::OK;
+        let http_request_info = HttpRequestInfo {
+            http_status_code: http_resp.status().into(),
+            error_message: if !ok {
+                http_resp.body().into()
+            } else {
+                str!("")
+            },
+        };
+        let pull_response = if ok {
+            Some(serde_json::from_str(&http_resp.body()).map_err(InvalidResponse)?)
+        } else {
+            None
+        };
+        Ok((pull_response, http_request_info))
     }
 }
 
@@ -376,7 +392,6 @@ pub fn new_pull_http_request(
 #[derive(Debug)]
 pub enum PullError {
     FetchFailed(FetchError),
-    FetchNotOk(http::StatusCode, String),
     InvalidRequest(http::Error),
     InvalidResponse(serde_json::error::Error),
     SerializeRequestError(serde_json::error::Error),
@@ -430,6 +445,7 @@ mod tests {
             pub resp_body: &'a str,
             pub exp_err: Option<&'a str>,
             pub exp_resp: Option<PullResponse>,
+            pub exp_http_request_info: HttpRequestInfo,
         }
         let cases = [
             Case {
@@ -438,8 +454,7 @@ mod tests {
                 resp_body: r#"{
                     "cookie": "1",
                     "lastMutationID": 2,
-                    "patch": [{"op":"replace","path":"","value":{}}],
-                    "httpRequestInfo": { "httpStatusCode": 200, "errorMessage": "" }
+                    "patch": [{"op":"replace","path":"","value":{}}]
                 }"#,
                 exp_err: None,
                 exp_resp: Some(PullResponse {
@@ -451,13 +466,21 @@ mod tests {
                         value: json!({}),
                     }],
                 }),
+                exp_http_request_info: HttpRequestInfo {
+                    http_status_code: http::StatusCode::OK.into(),
+                    error_message: str!(""),
+                },
             },
             Case {
                 name: "403",
                 resp_status: 403,
                 resp_body: "forbidden",
-                exp_err: Some(r#"FetchNotOk(403, "forbidden")"#),
+                exp_err: None,
                 exp_resp: None,
+                exp_http_request_info: HttpRequestInfo {
+                    http_status_code: http::StatusCode::FORBIDDEN.into(),
+                    error_message: str!("forbidden"),
+                },
             },
             Case {
                 name: "invalid response",
@@ -465,6 +488,11 @@ mod tests {
                 resp_body: r#"not json"#,
                 exp_err: Some("\"expected ident\", line: 1, column: 2"),
                 exp_resp: None,
+                // Not used in when exp_err is Some
+                exp_http_request_info: HttpRequestInfo {
+                    http_status_code: http::StatusCode::OK.into(),
+                    error_message: str!(""),
+                },
             },
         ];
 
@@ -503,10 +531,14 @@ mod tests {
                 )
                 .await;
 
+            if let Ok(ref result) = result {
+                assert_eq!(result.1, c.exp_http_request_info);
+            }
+
             match &c.exp_err {
                 None => {
-                    let got_pull_resp = result.expect(c.name);
-                    assert_eq!(c.exp_resp.as_ref().unwrap(), &got_pull_resp);
+                    let got_pull_resp = result.expect(c.name).0;
+                    assert_eq!(c.exp_resp, got_pull_resp, "{}", c.name);
                 }
                 Some(err_str) => {
                     let got_err_str = to_debug(result.expect_err(c.name));
@@ -1103,25 +1135,27 @@ mod tests {
             url: &str,
             auth: &str,
             request_id: &str,
-        ) -> Result<PullResponse, PullError> {
+        ) -> Result<(Option<PullResponse>, HttpRequestInfo), PullError> {
             assert_eq!(self.exp_pull_req, pull_req);
             assert_eq!(self.exp_pull_url, url);
             assert_eq!(self.exp_pull_auth, auth);
             assert_eq!(self.exp_request_id, request_id);
 
-            match &self.err {
+            let http_request_info = match &self.err {
                 Some(s) => match s.as_str() {
-                    "FetchNotOk(500)" => Err(PullError::FetchNotOk(
-                        http::StatusCode::INTERNAL_SERVER_ERROR,
-                        str!("Fetch not OK"),
-                    )),
+                    "FetchNotOk(500)" => HttpRequestInfo {
+                        http_status_code: http::StatusCode::INTERNAL_SERVER_ERROR.into(),
+                        error_message: str!("Fetch not OK"),
+                    },
                     _ => panic!("not implemented"),
                 },
-                None => {
-                    let r = self.resp.as_ref();
-                    Ok(r.unwrap().clone())
-                }
-            }
+                None => HttpRequestInfo {
+                    http_status_code: http::StatusCode::OK.into(),
+                    error_message: str!(""),
+                },
+            };
+
+            Ok((self.resp.clone(), http_request_info))
         }
     }
 
