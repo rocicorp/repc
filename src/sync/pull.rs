@@ -62,8 +62,18 @@ pub async fn begin_pull(
     let pull_timer = rlog::Timer::new().map_err(InternalTimerError)?;
     let pull_resp = puller
         .pull(&pull_req, &pull_url, &pull_auth, &request_id)
-        .await
-        .map_err(PullFailed)?;
+        .await;
+    if let Err(PullError::FetchNotOk(status_code, body)) = pull_resp {
+        return Ok(BeginTryPullResponse {
+            http_request_info: HttpRequestInfo {
+                http_status_code: status_code.into(),
+                error_message: body,
+            },
+            sync_head: str!(""),
+            request_id,
+        });
+    }
+    let pull_resp = pull_resp.map_err(PullFailed)?;
     debug!(
         lc.clone(),
         "...Pull complete in {}ms",
@@ -162,7 +172,10 @@ pub async fn begin_pull(
     let commit_hash = db_write.commit(SYNC_HEAD_NAME).await.map_err(CommitError)?;
 
     Ok(BeginTryPullResponse {
-        http_request_info: pull_resp.http_request_info,
+        http_request_info: HttpRequestInfo {
+            http_status_code: 200,
+            error_message: str!(""),
+        },
         sync_head: commit_hash,
         request_id,
     })
@@ -289,8 +302,6 @@ pub struct PullResponse {
     #[serde(rename = "lastMutationID")]
     pub last_mutation_id: u64,
     pub patch: Vec<patch::Operation>,
-    #[serde(rename = "httpRequestInfo")]
-    pub http_request_info: HttpRequestInfo,
 }
 
 // We define this trait so we can provide a fake implementation for testing.
@@ -332,11 +343,12 @@ impl Puller for FetchPuller<'_> {
             .await
             .map_err(FetchFailed)?;
         if http_resp.status() != http::StatusCode::OK {
-            return Err(PullError::FetchNotOk(http_resp.status()));
+            return Err(PullError::FetchNotOk(
+                http_resp.status(),
+                http_resp.body().into(),
+            ));
         }
-        let pull_resp: PullResponse =
-            serde_json::from_str(&http_resp.body()).map_err(InvalidResponse)?;
-        Ok(pull_resp)
+        Ok(serde_json::from_str(&http_resp.body()).map_err(InvalidResponse)?)
     }
 }
 
@@ -364,7 +376,7 @@ pub fn new_pull_http_request(
 #[derive(Debug)]
 pub enum PullError {
     FetchFailed(FetchError),
-    FetchNotOk(http::StatusCode),
+    FetchNotOk(http::StatusCode, String),
     InvalidRequest(http::Error),
     InvalidResponse(serde_json::error::Error),
     SerializeRequestError(serde_json::error::Error),
@@ -438,17 +450,13 @@ mod tests {
                         path: str!(""),
                         value: json!({}),
                     }],
-                    http_request_info: HttpRequestInfo {
-                        http_status_code: 200,
-                        error_message: str!(""),
-                    },
                 }),
             },
             Case {
                 name: "403",
                 resp_status: 403,
                 resp_body: "forbidden",
-                exp_err: Some("FetchNotOk(403)"),
+                exp_err: Some(r#"FetchNotOk(403, "forbidden")"#),
                 exp_resp: None,
             },
             Case {
@@ -574,7 +582,6 @@ mod tests {
                     value: json!("value"),
                 },
             ],
-            http_request_info: good_http_request_info.clone(),
         };
         let good_pull_resp_value_map = map!("/new" => "\"value\"");
 
@@ -589,9 +596,9 @@ mod tests {
             pub name: &'a str,
             pub num_pending_mutations: u32,
             pub pull_result: Result<PullResponse, String>,
-            // BeginPull expectations.
-            pub exp_err: Option<&'a str>,
+            // BeginTryPull expectations.
             pub exp_new_sync_head: Option<ExpCommit<'a>>,
+            pub exp_begin_try_pull_result: Result<BeginTryPullResponse, BeginTryPullError>,
         }
 
         let exp_pull_req = PullRequest {
@@ -606,12 +613,16 @@ mod tests {
                 name: "0 pending, pulls new state -> beginpull succeeds w/synchead set",
                 num_pending_mutations: 0,
                 pull_result: Ok(good_pull_resp.clone()),
-                exp_err: None,
                 exp_new_sync_head: Some(ExpCommit {
                     cookie: new_cookie.clone(),
                     last_mutation_id: good_pull_resp.last_mutation_id,
                     value_map: good_pull_resp_value_map.clone(),
                     indexes: vec![2.to_string()],
+                }),
+                exp_begin_try_pull_result: Ok(BeginTryPullResponse {
+                    http_request_info: good_http_request_info.clone(),
+                    sync_head: str!(""),
+                    request_id: request_id.clone(),
                 }),
             },
             Case {
@@ -621,12 +632,16 @@ mod tests {
                     last_mutation_id: 2,
                     ..good_pull_resp.clone()
                 }),
-                exp_err: None,
                 exp_new_sync_head: Some(ExpCommit {
                     cookie: new_cookie.clone(),
                     last_mutation_id: 2,
                     value_map: good_pull_resp_value_map.clone(),
                     indexes: vec![2.to_string(), 4.to_string()],
+                }),
+                exp_begin_try_pull_result: Ok(BeginTryPullResponse {
+                    http_request_info: good_http_request_info.clone(),
+                    sync_head: str!(""),
+                    request_id: request_id.clone(),
                 }),
             },
             Case {
@@ -636,24 +651,32 @@ mod tests {
                     last_mutation_id: 1,
                     ..good_pull_resp.clone()
                 }),
-                exp_err: None,
                 exp_new_sync_head: Some(ExpCommit {
                     cookie: new_cookie.clone(),
                     last_mutation_id: 1,
                     value_map: good_pull_resp_value_map.clone(),
                     indexes: vec![2.to_string()],
                 }),
+                exp_begin_try_pull_result: Ok(BeginTryPullResponse {
+                    http_request_info: good_http_request_info.clone(),
+                    sync_head: str!(""),
+                    request_id: request_id.clone(),
+                }),
             },
             Case {
                 name: "2 pending, 0 to replay, pulls new state -> beginpull succeeds w/synchead set",
                 num_pending_mutations: 2,
                 pull_result: Ok(good_pull_resp.clone()),
-                exp_err: None,
                 exp_new_sync_head: Some(ExpCommit {
                     cookie: new_cookie.clone(),
                     last_mutation_id: good_pull_resp.last_mutation_id,
                     value_map: good_pull_resp_value_map.clone(),
                     indexes: vec![2.to_string(), 4.to_string(), 6.to_string()],
+                }),
+                exp_begin_try_pull_result: Ok(BeginTryPullResponse {
+                    http_request_info: good_http_request_info.clone(),
+                    sync_head: str!(""),
+                    request_id: request_id.clone(),
                 }),
             },
             Case {
@@ -663,12 +686,16 @@ mod tests {
                     last_mutation_id: 2,
                     ..good_pull_resp.clone()
                 }),
-                exp_err: None,
                 exp_new_sync_head: Some(ExpCommit {
                     cookie: new_cookie.clone(),
                     last_mutation_id: 2,
                     value_map: good_pull_resp_value_map.clone(),
                     indexes: vec![2.to_string(), 4.to_string()],
+                }),
+                exp_begin_try_pull_result: Ok(BeginTryPullResponse {
+                    http_request_info: good_http_request_info.clone(),
+                    sync_head: str!(""),
+                    request_id: request_id.clone(),
                 }),
             },
             // The patch, last_mutation_id, and cookie determine whether we write a new
@@ -682,8 +709,12 @@ mod tests {
                     patch: vec![],
                     ..good_pull_resp.clone()
                 }),
-                exp_err: None,
                 exp_new_sync_head: None,
+                exp_begin_try_pull_result: Ok(BeginTryPullResponse {
+                    http_request_info: good_http_request_info.clone(),
+                    sync_head: str!(""),
+                    request_id: request_id.clone(),
+                }),
             },
             Case {
                 name: "new patch, same lmid, same cookie -> beginpull succeeds w/synchead set",
@@ -693,12 +724,16 @@ mod tests {
                     cookie: base_cookie.clone(),
                     ..good_pull_resp.clone()
                 }),
-                exp_err: None,
                 exp_new_sync_head: Some(ExpCommit {
                     cookie: base_cookie.clone(),
                     last_mutation_id: base_last_mutation_id,
                     value_map: good_pull_resp_value_map.clone(),
                     indexes: vec![2.to_string()],
+                }),
+                exp_begin_try_pull_result: Ok(BeginTryPullResponse {
+                    http_request_info: good_http_request_info.clone(),
+                    sync_head: str!(""),
+                    request_id: request_id.clone(),
                 }),
             },
             Case {
@@ -710,12 +745,16 @@ mod tests {
                     patch: vec![],
                     ..good_pull_resp.clone()
                 }),
-                exp_err: None,
                 exp_new_sync_head: Some(ExpCommit {
                     cookie: base_cookie.clone(),
                     last_mutation_id: base_last_mutation_id+1,
                     value_map: base_value_map.clone(),
                     indexes: vec![2.to_string()],
+                }),
+                exp_begin_try_pull_result: Ok(BeginTryPullResponse {
+                    http_request_info: good_http_request_info.clone(),
+                    sync_head: str!(""),
+                    request_id: request_id.clone(),
                 }),
             },
             Case {
@@ -727,12 +766,16 @@ mod tests {
                     patch: vec![],
                     ..good_pull_resp.clone()
                 }),
-                exp_err: None,
                 exp_new_sync_head: Some(ExpCommit {
                     cookie: json!("new_cookie"),
                     last_mutation_id: base_last_mutation_id,
                     value_map: base_value_map.clone(),
                     indexes: vec![2.to_string()],
+                }),
+                exp_begin_try_pull_result: Ok(BeginTryPullResponse {
+                    http_request_info: good_http_request_info.clone(),
+                    sync_head: str!(""),
+                    request_id: request_id.clone(),
                 }),
             },
             Case {
@@ -742,12 +785,16 @@ mod tests {
                     cookie: base_cookie.clone(),
                     ..good_pull_resp.clone()
                 }),
-                exp_err: None,
                 exp_new_sync_head: Some(ExpCommit {
                     cookie: base_cookie.clone(),
                     last_mutation_id: good_pull_resp.last_mutation_id,
                     value_map: good_pull_resp_value_map.clone(),
                     indexes: vec![2.to_string()],
+                }),
+                exp_begin_try_pull_result: Ok(BeginTryPullResponse {
+                    http_request_info: good_http_request_info.clone(),
+                    sync_head: str!(""),
+                    request_id: request_id.clone(),
                 }),
             },
             Case {
@@ -757,12 +804,16 @@ mod tests {
                     last_mutation_id: base_last_mutation_id,
                     ..good_pull_resp.clone()
                 }),
-                exp_err: None,
                 exp_new_sync_head: Some(ExpCommit {
                     cookie: good_pull_resp.cookie.clone(),
                     last_mutation_id: base_last_mutation_id,
                     value_map: good_pull_resp_value_map.clone(),
                     indexes: vec![2.to_string()],
+                }),
+                exp_begin_try_pull_result: Ok(BeginTryPullResponse {
+                    http_request_info: good_http_request_info.clone(),
+                    sync_head: str!(""),
+                    request_id: request_id.clone(),
                 }),
             },
             Case {
@@ -772,12 +823,16 @@ mod tests {
                     patch: vec![],
                     ..good_pull_resp.clone()
                 }),
-                exp_err: None,
                 exp_new_sync_head: Some(ExpCommit {
                     cookie: good_pull_resp.cookie.clone(),
                     last_mutation_id: good_pull_resp.last_mutation_id,
                     value_map: base_value_map.clone(),
                     indexes: vec![2.to_string()],
+                }),
+                exp_begin_try_pull_result: Ok(BeginTryPullResponse {
+                    http_request_info: good_http_request_info.clone(),
+                    sync_head: str!(""),
+                    request_id: request_id.clone(),
                 }),
             },
             Case {
@@ -786,12 +841,16 @@ mod tests {
                 pull_result: Ok(PullResponse {
                     ..good_pull_resp.clone()
                 }),
-                exp_err: None,
                 exp_new_sync_head: Some(ExpCommit {
                     cookie: good_pull_resp.cookie.clone(),
                     last_mutation_id: good_pull_resp.last_mutation_id,
                     value_map: good_pull_resp_value_map.clone(),
                     indexes: vec![2.to_string()],
+                }),
+                exp_begin_try_pull_result: Ok(BeginTryPullResponse {
+                    http_request_info: good_http_request_info.clone(),
+                    sync_head: str!(""),
+                    request_id: request_id.clone(),
                 }),
             },
             Case {
@@ -801,15 +860,24 @@ mod tests {
                     last_mutation_id: 0,
                     ..good_pull_resp.clone()
                 }),
-                exp_err: Some("TimeTravel"),
                 exp_new_sync_head: None,
+                exp_begin_try_pull_result: Err(BeginTryPullError::TimeTravelProhibited(str!(
+                    "base lastMutationID 1 is > than client view lastMutationID 0; ignoring client view"
+                ))),
             },
             Case {
                 name: "pull 500s -> beginpull errors",
                 num_pending_mutations: 0,
                 pull_result: Err(str!("FetchNotOk(500)")),
-                exp_err: Some("FetchNotOk(500)"),
                 exp_new_sync_head: None,
+                exp_begin_try_pull_result: Ok(BeginTryPullResponse {
+                    http_request_info: HttpRequestInfo {
+                        error_message: str!("Fetch not OK"),
+                        http_status_code: 500,
+            },
+                    sync_head: str!(""),
+                    request_id: request_id.clone(),
+                }),
             },
         ];
         for c in cases.iter() {
@@ -892,14 +960,6 @@ mod tests {
             )
             .await;
 
-            let mut got_resp: Option<BeginTryPullResponse> = None;
-            match c.exp_err {
-                None => {
-                    assert!(result.is_ok(), format!("{}: {:?}", c.name, result));
-                    got_resp = Some(result.unwrap());
-                }
-                Some(e) => assert!(to_debug(result.unwrap_err()).contains(e)),
-            };
             let owned_read = store.read(LogContext::new()).await.unwrap();
             let read = owned_read.read();
             if let Some(exp_sync_head) = &c.exp_new_sync_head {
@@ -981,7 +1041,7 @@ mod tests {
                         .unwrap();
                 }
 
-                assert_eq!(&sync_head_hash, &got_resp.as_ref().unwrap().sync_head);
+                assert_eq!(&sync_head_hash, &result.as_ref().unwrap().sync_head);
             } else {
                 let got_head = read.get_head(SYNC_HEAD_NAME).await.unwrap();
                 assert!(
@@ -994,19 +1054,26 @@ mod tests {
                 );
                 // In a nop sync we except Beginpull to succeed but sync_head will
                 // be empty.
-                if c.exp_err.is_none() {
-                    assert!(&got_resp.as_ref().unwrap().sync_head.is_empty());
+                if c.exp_begin_try_pull_result.is_ok() {
+                    assert!(&result.as_ref().unwrap().sync_head.is_empty());
                 }
             }
 
             // Check that BeginTryPullResponse is filled like we would expect.
-            if c.exp_err.is_none() {
-                if let Ok(pull_response) = &c.pull_result {
-                    assert_eq!(
-                        pull_response.http_request_info,
-                        got_resp.unwrap().http_request_info
-                    );
-                }
+            assert_eq!(result.is_ok(), c.exp_begin_try_pull_result.is_ok());
+            if let Ok(result) = result {
+                // Do not check syncHead... it is not stable?
+                assert_eq!(
+                    result.http_request_info,
+                    c.exp_begin_try_pull_result
+                        .as_ref()
+                        .unwrap()
+                        .http_request_info
+                );
+                assert_eq!(
+                    result.request_id,
+                    c.exp_begin_try_pull_result.as_ref().unwrap().request_id
+                );
             }
         }
     }
@@ -1046,6 +1113,7 @@ mod tests {
                 Some(s) => match s.as_str() {
                     "FetchNotOk(500)" => Err(PullError::FetchNotOk(
                         http::StatusCode::INTERNAL_SERVER_ERROR,
+                        str!("Fetch not OK"),
                     )),
                     _ => panic!("not implemented"),
                 },
