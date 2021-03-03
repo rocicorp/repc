@@ -1088,10 +1088,8 @@ mod tests {
                 }
             }
 
-            // Check that BeginTryPullResponse is filled like we would expect.
             assert_eq!(result.is_ok(), c.exp_begin_try_pull_result.is_ok());
             if let Ok(result) = result {
-                // Do not check syncHead... it is not stable?
                 assert_eq!(
                     result.http_request_info,
                     c.exp_begin_try_pull_result
@@ -1099,9 +1097,16 @@ mod tests {
                         .unwrap()
                         .http_request_info
                 );
+                // syncHead is checked above based on the exp_sync_head
                 assert_eq!(
                     result.request_id,
                     c.exp_begin_try_pull_result.as_ref().unwrap().request_id
+                );
+            } else {
+                // use to_debug since some errors cannot be made PartialEq
+                assert_eq!(
+                    to_debug(result.unwrap_err()),
+                    to_debug(c.exp_begin_try_pull_result.as_ref().unwrap_err())
                 );
             }
         }
