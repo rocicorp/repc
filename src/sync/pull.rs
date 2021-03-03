@@ -334,6 +334,10 @@ impl FetchPuller<'_> {
 
 #[async_trait(?Send)]
 impl Puller for FetchPuller<'_> {
+    // A failed HTTP response (non 200) is not an error. In that case we get
+    // `None` for the `PullResponse`. We get errors for a few non HTTP related
+    // reasons such as if we fail to create a Request object, the call to fetch
+    // fails or the response is not the expected JSON format.
     async fn pull(
         &self,
         pull_req: &PullRequest,
