@@ -1490,7 +1490,7 @@ async fn test_browser_fetch() {
         client_id: str!("1"),
         ..Default::default()
     };
-    let http_req = sync::new_pull_http_request(
+    let http_req = sync::new_http_request(
         &pull_req,
         "https://replicache-sample-todo.now.sh/serve/replicache-client-view",
         "1",

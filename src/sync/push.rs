@@ -1,4 +1,4 @@
-use super::{HttpRequestInfo, TryPushError, TryPushRequest};
+use super::{new_http_request, HttpRequestInfo, RequestError, TryPushError, TryPushRequest};
 use crate::fetch::errors::FetchError;
 use crate::{dag, db, util::rlog::LogContext};
 use crate::{fetch, util::rlog};
@@ -91,7 +91,7 @@ impl Pusher for FetchPusher<'_> {
         overlapping_requests: bool,
     ) -> Result<(Option<PushResponse>, HttpRequestInfo), PushError> {
         use PushError::*;
-        let http_req = new_push_http_request(
+        let http_req = new_http_request(
             push_req,
             push_url,
             push_auth,
@@ -127,39 +127,22 @@ impl Pusher for FetchPusher<'_> {
     }
 }
 
-fn new_push_http_request(
-    push_req: &PushRequest,
-    push_url: &str,
-    push_auth: &str,
-    request_id: &str,
-    overlapping_requests: bool,
-) -> Result<http::Request<String>, PushError> {
-    use PushError::*;
-    let body = serde_json::to_string(push_req).map_err(SerializePushError)?;
-    let builder = http::request::Builder::new();
-    let http_req = builder
-        .version(if overlapping_requests {
-            http::Version::HTTP_2
-        } else {
-            http::Version::default()
-        })
-        .method("POST")
-        .uri(push_url)
-        .header("Content-type", "application/json")
-        .header("Authorization", push_auth)
-        .header("X-Replicache-RequestID", request_id)
-        .body(body)
-        .map_err(InvalidRequest)?;
-    Ok(http_req)
-}
-
 #[derive(Debug)]
 pub enum PushError {
     FetchFailed(FetchError),
     IncorrectHttpVersion(http::Version),
     InvalidRequest(http::Error),
     InvalidResponse(serde_json::error::Error),
-    SerializePushError(serde_json::error::Error),
+    SerializeRequestError(serde_json::error::Error),
+}
+
+impl From<RequestError> for PushError {
+    fn from(e: RequestError) -> Self {
+        match e {
+            RequestError::InvalidRequest(e) => PushError::InvalidRequest(e),
+            RequestError::SerializeRequestError(e) => PushError::SerializeRequestError(e),
+        }
+    }
 }
 
 pub async fn push(

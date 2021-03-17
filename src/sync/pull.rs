@@ -1,8 +1,7 @@
 #![allow(clippy::redundant_pattern_matching)] // For derive(Deserialize).
 
-use super::patch;
 use super::types::*;
-use super::SYNC_HEAD_NAME;
+use super::{new_http_request, patch, RequestError, SYNC_HEAD_NAME};
 use crate::dag;
 use crate::db;
 use crate::db::{Commit, MetaTyped, Whence, DEFAULT_HEAD_NAME};
@@ -380,8 +379,7 @@ impl Puller for FetchPuller<'_> {
         overlapping_requests: bool,
     ) -> Result<(Option<PullResponse>, HttpRequestInfo), PullError> {
         use PullError::*;
-        let http_req =
-            new_pull_http_request(pull_req, url, auth, request_id, overlapping_requests)?;
+        let http_req = new_http_request(pull_req, url, auth, request_id, overlapping_requests)?;
         let http_resp: http::Response<String> = self
             .fetch_client
             .request(http_req)
@@ -411,33 +409,6 @@ impl Puller for FetchPuller<'_> {
     }
 }
 
-// Pulled into a helper fn because we use it integration tests.
-pub fn new_pull_http_request(
-    pull_req: &PullRequest,
-    url: &str,
-    auth: &str,
-    request_id: &str,
-    overlapping_requests: bool,
-) -> Result<http::Request<String>, PullError> {
-    use PullError::*;
-    let body = serde_json::to_string(pull_req).map_err(SerializeRequestError)?;
-    let builder = http::request::Builder::new();
-    let http_req = builder
-        .version(if overlapping_requests {
-            http::Version::HTTP_2
-        } else {
-            http::Version::default()
-        })
-        .method("POST")
-        .uri(url)
-        .header("Content-type", "application/json")
-        .header("Authorization", auth)
-        .header("X-Replicache-RequestID", request_id)
-        .body(body)
-        .map_err(InvalidRequest)?;
-    Ok(http_req)
-}
-
 #[derive(Debug)]
 pub enum PullError {
     FetchFailed(FetchError),
@@ -445,6 +416,15 @@ pub enum PullError {
     InvalidRequest(http::Error),
     InvalidResponse(serde_json::error::Error),
     SerializeRequestError(serde_json::error::Error),
+}
+
+impl From<RequestError> for PullError {
+    fn from(e: RequestError) -> Self {
+        match e {
+            RequestError::InvalidRequest(e) => PullError::InvalidRequest(e),
+            RequestError::SerializeRequestError(e) => PullError::SerializeRequestError(e),
+        }
+    }
 }
 
 #[cfg(test)]
