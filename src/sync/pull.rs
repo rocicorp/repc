@@ -28,6 +28,7 @@ pub async fn begin_pull(
     puller: &dyn Puller,
     request_id: String,
     store: &dag::Store,
+    overlapping_requests: bool,
     lc: LogContext,
 ) -> Result<BeginTryPullResponse, BeginTryPullError> {
     use BeginTryPullError::*;
@@ -64,7 +65,13 @@ pub async fn begin_pull(
     debug!(lc, "Starting pull...");
     let pull_timer = rlog::Timer::new().map_err(InternalTimerError)?;
     let (pull_resp, http_request_info) = puller
-        .pull(&pull_req, &pull_url, &pull_auth, &request_id)
+        .pull(
+            &pull_req,
+            &pull_url,
+            &pull_auth,
+            &request_id,
+            overlapping_requests,
+        )
         .await
         .map_err(PullFailed)?;
 
@@ -344,6 +351,7 @@ pub trait Puller {
         ur: &str,
         auth: &str,
         request_id: &str,
+        overlapping_requests: bool,
     ) -> Result<(Option<PullResponse>, HttpRequestInfo), PullError>;
 }
 
@@ -369,14 +377,22 @@ impl Puller for FetchPuller<'_> {
         url: &str,
         auth: &str,
         request_id: &str,
+        overlapping_requests: bool,
     ) -> Result<(Option<PullResponse>, HttpRequestInfo), PullError> {
         use PullError::*;
-        let http_req = new_pull_http_request(pull_req, url, auth, request_id)?;
+        let http_req =
+            new_pull_http_request(pull_req, url, auth, request_id, overlapping_requests)?;
         let http_resp: http::Response<String> = self
             .fetch_client
             .request(http_req)
             .await
             .map_err(FetchFailed)?;
+        if overlapping_requests {
+            match http_resp.version() {
+                http::Version::HTTP_2 | http::Version::HTTP_3 => (),
+                _ => return Err(IncorrectHttpVersion(http_resp.version())),
+            }
+        }
         let ok = http_resp.status() == http::StatusCode::OK;
         let http_request_info = HttpRequestInfo {
             http_status_code: http_resp.status().into(),
@@ -401,11 +417,17 @@ pub fn new_pull_http_request(
     url: &str,
     auth: &str,
     request_id: &str,
+    overlapping_requests: bool,
 ) -> Result<http::Request<String>, PullError> {
     use PullError::*;
     let body = serde_json::to_string(pull_req).map_err(SerializeRequestError)?;
     let builder = http::request::Builder::new();
     let http_req = builder
+        .version(if overlapping_requests {
+            http::Version::HTTP_2
+        } else {
+            http::Version::default()
+        })
         .method("POST")
         .uri(url)
         .header("Content-type", "application/json")
@@ -419,6 +441,7 @@ pub fn new_pull_http_request(
 #[derive(Debug)]
 pub enum PullError {
     FetchFailed(FetchError),
+    IncorrectHttpVersion(http::Version),
     InvalidRequest(http::Error),
     InvalidResponse(serde_json::error::Error),
     SerializeRequestError(serde_json::error::Error),
@@ -551,6 +574,7 @@ mod tests {
                     &format!("http://{}{}", addr, path),
                     pull_auth,
                     request_id,
+                    false,
                 )
                 .await;
 
@@ -1009,6 +1033,7 @@ mod tests {
                 &fake_puller,
                 request_id.clone(),
                 &store,
+                false,
                 LogContext::new(),
             )
             .await;
@@ -1161,6 +1186,7 @@ mod tests {
             url: &str,
             auth: &str,
             request_id: &str,
+            _overlapping_requests: bool,
         ) -> Result<(Option<PullResponse>, HttpRequestInfo), PullError> {
             assert_eq!(self.exp_pull_req, pull_req);
             assert_eq!(self.exp_pull_url, url);

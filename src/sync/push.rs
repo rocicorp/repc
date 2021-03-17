@@ -58,6 +58,7 @@ pub trait Pusher {
         push_url: &str,
         push_auth: &str,
         request_id: &str,
+        overlapping_requests: bool,
     ) -> Result<(Option<PushResponse>, HttpRequestInfo), PushError>;
 }
 
@@ -87,14 +88,27 @@ impl Pusher for FetchPusher<'_> {
         push_url: &str,
         push_auth: &str,
         request_id: &str,
+        overlapping_requests: bool,
     ) -> Result<(Option<PushResponse>, HttpRequestInfo), PushError> {
         use PushError::*;
-        let http_req = new_push_http_request(push_req, push_url, push_auth, request_id)?;
+        let http_req = new_push_http_request(
+            push_req,
+            push_url,
+            push_auth,
+            request_id,
+            overlapping_requests,
+        )?;
         let http_resp: http::Response<String> = self
             .fetch_client
             .request(http_req)
             .await
             .map_err(FetchFailed)?;
+        if overlapping_requests {
+            match http_resp.version() {
+                http::Version::HTTP_2 | http::Version::HTTP_3 => (),
+                _ => return Err(IncorrectHttpVersion(http_resp.version())),
+            }
+        }
         let ok = http_resp.status() == http::StatusCode::OK;
         let http_request_info = HttpRequestInfo {
             http_status_code: http_resp.status().into(),
@@ -118,11 +132,17 @@ fn new_push_http_request(
     push_url: &str,
     push_auth: &str,
     request_id: &str,
+    overlapping_requests: bool,
 ) -> Result<http::Request<String>, PushError> {
     use PushError::*;
     let body = serde_json::to_string(push_req).map_err(SerializePushError)?;
     let builder = http::request::Builder::new();
     let http_req = builder
+        .version(if overlapping_requests {
+            http::Version::HTTP_2
+        } else {
+            http::Version::default()
+        })
         .method("POST")
         .uri(push_url)
         .header("Content-type", "application/json")
@@ -136,6 +156,7 @@ fn new_push_http_request(
 #[derive(Debug)]
 pub enum PushError {
     FetchFailed(FetchError),
+    IncorrectHttpVersion(http::Version),
     InvalidRequest(http::Error),
     InvalidResponse(serde_json::error::Error),
     SerializePushError(serde_json::error::Error),
@@ -148,6 +169,7 @@ pub async fn push(
     client_id: String,
     pusher: &dyn Pusher,
     req: TryPushRequest,
+    overlapping_requests: bool,
 ) -> Result<Option<HttpRequestInfo>, TryPushError> {
     use TryPushError::*;
 
@@ -187,7 +209,13 @@ pub async fn push(
         debug!(lc, "Starting push...");
         let push_timer = rlog::Timer::new().map_err(InternalTimerError)?;
         let (_push_resp, req_info) = pusher
-            .push(&push_req, &req.push_url, &req.push_auth, request_id)
+            .push(
+                &push_req,
+                &req.push_url,
+                &req.push_auth,
+                request_id,
+                overlapping_requests,
+            )
             .await
             .map_err(PushFailed)?;
         http_request_info = Some(req_info);
@@ -319,13 +347,14 @@ mod tests {
             let handle = async_std::task::spawn_local(app.listen(listener));
 
             let client = fetch::client::Client::new();
-            let puller = FetchPusher::new(&client);
-            let result = puller
+            let pusher = FetchPusher::new(&client);
+            let result = pusher
                 .push(
                     &PUSH_REQ,
                     &format!("http://{}{}", addr, path),
                     batch_push_auth,
                     request_id,
+                    false,
                 )
                 .await;
 
@@ -379,6 +408,7 @@ mod tests {
             push_url: &str,
             push_auth: &str,
             request_id: &str,
+            _overlapping_requests: bool,
         ) -> Result<(Option<push::PushResponse>, HttpRequestInfo), push::PushError> {
             assert!(self.exp_push);
 
@@ -404,6 +434,79 @@ mod tests {
             };
 
             Ok((self.resp.clone(), http_request_info))
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[async_std::test]
+    async fn test_overlapping_request_http_version() {
+        // Our version of hyper does not support http/2 so this only tests with http/1.1
+        // TODO: Upgrade hyper but hyper uses tokio and we have a hack around that.
+        struct Case {
+            overlapping_requests: bool,
+            exp_res: Result<(Option<PushResponse>, HttpRequestInfo), PushError>,
+        }
+
+        let cases = [
+            Case {
+                overlapping_requests: false,
+                exp_res: Ok((
+                    Some(PushResponse {}),
+                    HttpRequestInfo {
+                        http_status_code: 200,
+                        error_message: str!(""),
+                    },
+                )),
+            },
+            Case {
+                overlapping_requests: true,
+                exp_res: Err(PushError::IncorrectHttpVersion(http::Version::HTTP_11)),
+            },
+        ];
+        for c in cases.iter() {
+            let push_req = PushRequest {
+                client_id: str!("client_id"),
+                mutations: vec![],
+                push_version: PUSH_VERSION,
+                schema_version: str!("schema_version"),
+            };
+
+            let path = "/push";
+            let status = 200;
+            let body = "{}";
+            let batch_push_auth = "batch-push-auth";
+            let request_id = "request-id";
+
+            let mut app = tide::new();
+
+            app.at(path).post(move |req: tide::Request<()>| async move {
+                assert_eq!(req.version(), Some(tide::http::Version::Http1_1));
+                let response = Response::builder(status)
+                    .body(Body::from_string(body.to_string()))
+                    .build();
+                let mut r: tide::http::Response = response.into();
+                r.set_version(Some(tide::http::Version::Http2_0));
+                Ok(r)
+            });
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let handle = async_std::task::spawn_local(app.listen(listener));
+
+            let client = fetch::client::Client::new();
+            let pusher = FetchPusher::new(&client);
+            let result = pusher
+                .push(
+                    &push_req,
+                    &format!("http://{}{}", addr, path),
+                    batch_push_auth,
+                    request_id,
+                    c.overlapping_requests,
+                )
+                .await;
+
+            assert_eq!(to_debug(result), to_debug(&c.exp_res));
+
+            handle.cancel().await;
         }
     }
 
@@ -602,6 +705,7 @@ mod tests {
                     push_auth: push_auth.clone(),
                     schema_version: push_schema_version.clone(),
                 },
+                false,
             )
             .await
             .unwrap();

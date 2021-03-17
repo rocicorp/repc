@@ -28,11 +28,11 @@ impl Client {
         }
     }
 
-    // request() makes an HTTP request using a native rust HTTP client, as opposed
-    // to using the browser's Fetch API in wasm. It consumes its request input by design.
-    // The response returned will have the status and body set but not the headers,
-    // but only because we haven't writtent that code. Non-200 status code does not
-    // constitute an Err Result.
+    // request() makes an HTTP request using a native rust HTTP client, as
+    // opposed to using the browser's Fetch API in wasm. It consumes its request
+    // input by design. The response returned will have the version, status and
+    // body set but not the headers, but only because we haven't writtent that
+    // code. Non-200 status code does not constitute an Err Result.
     //     _ _   ____  ________          __     _____  ______   _ _
     //    | | | |  _ \|  ____\ \        / /\   |  __ \|  ____| | | |
     //    | | | | |_) | |__   \ \  /\  / /  \  | |__) | |__    | | |
@@ -40,8 +40,8 @@ impl Client {
     //    |_|_| | |_) | |____   \  /\  / ____ \| | \ \| |____  |_|_|
     //    (_|_) |____/|______|   \/  \/_/    \_\_|  \_\______| (_|_)
     //
-    // IF YOU CHANGE THE BEHAVIOR OR CAPABILITIES OF THIS FUNCTION please be sure to reflect
-    // the same changes into the browser client.
+    // IF YOU CHANGE THE BEHAVIOR OR CAPABILITIES OF THIS FUNCTION please be
+    // sure to reflect the same changes into the browser client.
     //
     // TODO log req/resp
     pub async fn request(
@@ -57,6 +57,7 @@ impl Client {
     ) -> Result<http::Response<String>, FetchError> {
         let (parts, req_body) = http_req.into_parts();
         let mut builder = hyper::Request::builder()
+            // TODO: Use HTTP/2 when we have upgraded hyper?
             .method(parts.method.as_str())
             .uri(&parts.uri.to_string());
         for (k, v) in parts.headers.iter() {
@@ -83,6 +84,7 @@ impl Client {
                 .map_err(|e| ErrorReadingResponseBodyAsString(to_debug(e)))?;
         let http_resp = http_resp_builder
             .status(hyper_resp.status())
+            .version(hyper_resp.version())
             .body(http_resp_string)
             .map_err(|e| FailedToWrapHttpResponse(to_debug(e)))?;
         Ok(http_resp)

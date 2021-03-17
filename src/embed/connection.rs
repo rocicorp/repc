@@ -98,7 +98,13 @@ async fn connection_future<'a, 'b>(
     UnorderedResult::None()
 }
 
-pub async fn process(store: dag::Store, rx: Receiver<Request>, client_id: String, lc: LogContext) {
+pub async fn process(
+    store: dag::Store,
+    rx: Receiver<Request>,
+    client_id: String,
+    overlapping_requests: bool,
+    lc: LogContext,
+) {
     if let Err(err) = do_init(&store, lc.clone()).await {
         error!(lc, "Could not initialize db: {:?}", err);
         return;
@@ -110,14 +116,26 @@ pub async fn process(store: dag::Store, rx: Receiver<Request>, client_id: String
 
     futures.push(connection_future(
         &rx,
-        Context::new(&store, &txns, client_id.clone(), LogContext::new()),
+        Context::new(
+            &store,
+            &txns,
+            client_id.clone(),
+            overlapping_requests,
+            LogContext::new(),
+        ),
         None,
     ));
     while let Some(value) = futures.next().await {
         if recv {
             futures.push(connection_future(
                 &rx,
-                Context::new(&store, &txns, client_id.clone(), LogContext::new()),
+                Context::new(
+                    &store,
+                    &txns,
+                    client_id.clone(),
+                    overlapping_requests,
+                    LogContext::new(),
+                ),
                 None,
             ));
         }
@@ -127,7 +145,13 @@ pub async fn process(store: dag::Store, rx: Receiver<Request>, client_id: String
                 Ok(req) => {
                     futures.push(connection_future(
                         &rx,
-                        Context::new(&store, &txns, client_id.clone(), req.lc.clone()),
+                        Context::new(
+                            &store,
+                            &txns,
+                            client_id.clone(),
+                            overlapping_requests,
+                            req.lc.clone(),
+                        ),
                         Some(req),
                     ));
                 }
@@ -142,6 +166,7 @@ struct Context<'a, 'b> {
     store: &'a dag::Store,
     txns: &'b TxnMap<'a>,
     client_id: String,
+    overlapping_requests: bool,
     lc: LogContext,
 }
 
@@ -150,12 +175,14 @@ impl<'a, 'b> Context<'a, 'b> {
         store: &'a dag::Store,
         txns: &'b TxnMap<'a>,
         client_id: String,
+        overlapping_requests: bool,
         lc: LogContext,
     ) -> Context<'a, 'b> {
         Context {
             store,
             txns,
             client_id,
+            overlapping_requests,
             lc,
         }
     }
@@ -669,8 +696,16 @@ async fn do_try_push<'a, 'b>(
     let request_id = sync::request_id::new(&ctx.client_id);
     ctx.lc.add_context("request_id", &request_id);
 
-    let http_request_info =
-        sync::push(&request_id, ctx.store, ctx.lc, ctx.client_id, &pusher, req).await?;
+    let http_request_info = sync::push(
+        &request_id,
+        ctx.store,
+        ctx.lc,
+        ctx.client_id,
+        &pusher,
+        req,
+        ctx.overlapping_requests,
+    )
+    .await?;
     Ok(sync::TryPushResponse { http_request_info })
 }
 
@@ -683,7 +718,16 @@ async fn do_begin_try_pull<'a, 'b>(
     let puller = sync::FetchPuller::new(&fetch_client);
     let request_id = sync::request_id::new(&ctx.client_id);
     ctx.lc.add_context("request_id", &request_id);
-    sync::begin_pull(ctx.client_id, req, &puller, request_id, ctx.store, ctx.lc).await
+    sync::begin_pull(
+        ctx.client_id,
+        req,
+        &puller,
+        request_id,
+        ctx.store,
+        ctx.overlapping_requests,
+        ctx.lc,
+    )
+    .await
 }
 
 #[derive(Debug)]
@@ -760,7 +804,7 @@ mod tests {
 
             // Error: rebase commit's basis must be sync head.
             let result = do_open_transaction(
-                Context::new(&store, &txns, str!("client_id"), LogContext::new()),
+                Context::new(&store, &txns, str!("client_id"), false, LogContext::new()),
                 OpenTransactionRequest {
                     name: Some(original_name.clone()),
                     args: Some(original_args.clone()),
@@ -775,7 +819,7 @@ mod tests {
 
             // Error: rebase commit's name should not change.
             let result = do_open_transaction(
-                Context::new(&store, &txns, str!("client_id"), LogContext::new()),
+                Context::new(&store, &txns, str!("client_id"), false, LogContext::new()),
                 OpenTransactionRequest {
                     name: Some(str!("different!")),
                     args: Some(original_args.clone()),
@@ -804,7 +848,7 @@ mod tests {
                 _ => panic!("not local"),
             };
             let result = do_open_transaction(
-                Context::new(&store, &txns, str!("client_id"), LogContext::new()),
+                Context::new(&store, &txns, str!("client_id"), false, LogContext::new()),
                 OpenTransactionRequest {
                     name: Some(new_local_name),
                     args: Some(new_local_args),
@@ -820,7 +864,7 @@ mod tests {
 
             // Correct rebase_opt (test this last because it affects the chain).
             let otr = do_open_transaction(
-                Context::new(&store, &txns, str!("client_id"), LogContext::new()),
+                Context::new(&store, &txns, str!("client_id"), false, LogContext::new()),
                 OpenTransactionRequest {
                     name: Some(original_name.clone()),
                     args: Some(original_args.clone()),
@@ -833,7 +877,7 @@ mod tests {
             .await
             .unwrap();
             let ctr = do_commit(
-                Context::new(&store, &txns, str!("client_id"), LogContext::new()),
+                Context::new(&store, &txns, str!("client_id"), false, LogContext::new()),
                 CommitTransactionRequest {
                     transaction_id: otr.transaction_id,
                 },

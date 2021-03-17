@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct OpenRequest {
+    #[serde(rename = "overlappingRequests")]
+    pub overlapping_requests: bool,
     #[serde(rename = "useMemstore")]
     pub use_memstore: bool,
 }

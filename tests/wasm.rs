@@ -210,7 +210,10 @@ fn is_valid_client_id(s: &str) -> bool {
 #[wasm_bindgen_test]
 async fn test_open_close() {
     for use_memstore in vec![true, false] {
-        let open_req = OpenRequest { use_memstore };
+        let open_req = OpenRequest {
+            overlapping_requests: false,
+            use_memstore,
+        };
         assert_eq!(
             dispatch::<_, String>("", "debug", "open_dbs")
                 .await
@@ -276,9 +279,16 @@ async fn test_concurrency_within_a_read_tx() {
         let performance = global_property::<web_sys::Performance>("performance")
             .expect("performance should be available");
 
-        let client_id = dispatch::<_, String>(db, "open", OpenRequest { use_memstore })
-            .await
-            .unwrap();
+        let client_id = dispatch::<_, String>(
+            db,
+            "open",
+            OpenRequest {
+                overlapping_requests: false,
+                use_memstore,
+            },
+        )
+        .await
+        .unwrap();
         assert!(
             is_valid_client_id(&client_id),
             "client_id \"{}\" does not look like a UUID",
@@ -313,9 +323,16 @@ async fn test_write_txs_dont_run_concurrently() {
     for use_memstore in vec![true, false] {
         let db = &random_db();
 
-        dispatch::<_, String>(db, "open", OpenRequest { use_memstore })
-            .await
-            .unwrap();
+        dispatch::<_, String>(
+            db,
+            "open",
+            OpenRequest {
+                overlapping_requests: false,
+                use_memstore,
+            },
+        )
+        .await
+        .unwrap();
         let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
             .await
             .transaction_id;
@@ -402,9 +419,16 @@ async fn test_read_txs_do_run_concurrently() {
     for use_memstore in vec![true, false] {
         let db = &random_db();
 
-        dispatch::<_, String>(db, "open", OpenRequest { use_memstore })
-            .await
-            .unwrap();
+        dispatch::<_, String>(
+            db,
+            "open",
+            OpenRequest {
+                overlapping_requests: false,
+                use_memstore,
+            },
+        )
+        .await
+        .unwrap();
         let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
             .await
             .transaction_id;
@@ -490,9 +514,16 @@ async fn test_get_put_del() {
             .unwrap_err(),
             format!("\"{}\" not open", db)
         );
-        let client_id = dispatch::<_, String>(db, "open", OpenRequest { use_memstore })
-            .await
-            .unwrap();
+        let client_id = dispatch::<_, String>(
+            db,
+            "open",
+            OpenRequest {
+                overlapping_requests: false,
+                use_memstore,
+            },
+        )
+        .await
+        .unwrap();
         assert!(
             is_valid_client_id(&client_id),
             "client_id \"{}\" does not look like a UUID",
@@ -555,9 +586,16 @@ async fn test_get_put_del() {
 async fn test_create_drop_index() {
     for use_memstore in vec![true, false] {
         let db = &random_db();
-        let client_id = dispatch::<_, String>(db, "open", OpenRequest { use_memstore })
-            .await
-            .unwrap();
+        let client_id = dispatch::<_, String>(
+            db,
+            "open",
+            OpenRequest {
+                overlapping_requests: false,
+                use_memstore,
+            },
+        )
+        .await
+        .unwrap();
         assert!(
             is_valid_client_id(&client_id),
             "client_id \"{}\" does not look like a UUID",
@@ -706,9 +744,16 @@ async fn test_scan() {
                 .collect();
 
             let db = &random_db();
-            dispatch::<_, String>(db, "open", OpenRequest { use_memstore })
-                .await
-                .unwrap();
+            dispatch::<_, String>(
+                db,
+                "open",
+                OpenRequest {
+                    overlapping_requests: false,
+                    use_memstore,
+                },
+            )
+            .await
+            .unwrap();
             let mut txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
                 .await
                 .transaction_id;
@@ -867,6 +912,7 @@ async fn test_scan_with_index() {
             db,
             "open",
             OpenRequest {
+                overlapping_requests: false,
                 use_memstore: false,
             },
         )
@@ -885,6 +931,7 @@ async fn test_scan_with_index() {
             db,
             "open",
             OpenRequest {
+                overlapping_requests: false,
                 use_memstore: false,
             },
         )
@@ -1328,9 +1375,16 @@ async fn test_get_root() {
                 .unwrap_err()
         );
 
-        let client_id = dispatch::<_, String>(db, "open", OpenRequest { use_memstore })
-            .await
-            .unwrap();
+        let client_id = dispatch::<_, String>(
+            db,
+            "open",
+            OpenRequest {
+                overlapping_requests: false,
+                use_memstore,
+            },
+        )
+        .await
+        .unwrap();
         assert!(
             is_valid_client_id(&client_id),
             "client_id \"{}\" does not look like a UUID",
@@ -1369,6 +1423,7 @@ async fn test_set_log_level() {
         db,
         "open",
         OpenRequest {
+            overlapping_requests: false,
             use_memstore: false,
         },
     )
@@ -1415,37 +1470,42 @@ fn test_browser_timer() {
     timer.elapsed_ms();
 }
 
-// We can't run a web server in wasm-in-the-browser so this is the next
-// best thing: a manual test that FETCHES OVER THE NETWORK. To run it:
+// We can't run a web server in wasm-in-the-browser so this is the next best
+// thing: a manual test that FETCHES OVER THE NETWORK. To run it:
 // 1. uncomment the #[wasm_bindgen_test] line
-// 2. wasm-pack test --chrome -- --test wasm
-// 3. open developer tools in a browser window
-// 4. navigate to 127.0.0.1:8000
-// 5. verify the request and response by inspection:
+// 2. Change X-Replicache-RequestID to X-Replicache-SyncID in
+//    new_pull_http_request until we have a CORS enabled server to test against.
+// 3. wasm-pack test --chrome -- --test wasm
+// 4. open developer tools in a browser window
+// 5. navigate to 127.0.0.1:8000
+// 6. verify the request and response by inspection:
 //     - method
 //     - http headers
 //     - outgoing and incoming body
 //
-//#[wasm_bindgen_test]
+// #[wasm_bindgen_test]
 #[allow(dead_code)]
 async fn test_browser_fetch() {
     let pull_req = sync::PullRequest {
+        client_id: str!("1"),
         ..Default::default()
     };
     let http_req = sync::new_pull_http_request(
         &pull_req,
-        "https://account-service.rocicorp.now.sh/api/hello",
-        "auth",
+        "https://replicache-sample-todo.now.sh/serve/replicache-client-view",
+        "1",
         "request_id",
+        true,
     )
     .unwrap();
     let client = fetch::client::Client::new();
     let resp = client.request(http_req).await.unwrap();
-    assert!(resp.body().contains("Well hello to you"));
+    assert_eq!(resp.version(), http::Version::HTTP_2);
+    assert!(resp.body().contains("clientView"));
 }
 
 // See note above about wasm fetch tests.
-//#[wasm_bindgen_test]
+// #[wasm_bindgen_test]
 #[allow(dead_code)]
 async fn test_browser_fetch_timeout() {
     let req = http::request::Builder::new()
