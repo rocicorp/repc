@@ -1,8 +1,7 @@
 #![allow(clippy::redundant_pattern_matching)] // For derive(Deserialize).
 
-use super::patch;
 use super::types::*;
-use super::SYNC_HEAD_NAME;
+use super::{new_http_request, patch, RequestError, SYNC_HEAD_NAME};
 use crate::dag;
 use crate::db;
 use crate::db::{Commit, MetaTyped, Whence, DEFAULT_HEAD_NAME};
@@ -28,6 +27,7 @@ pub async fn begin_pull(
     puller: &dyn Puller,
     request_id: String,
     store: &dag::Store,
+    overlapping_requests: bool,
     lc: LogContext,
 ) -> Result<BeginTryPullResponse, BeginTryPullError> {
     use BeginTryPullError::*;
@@ -64,7 +64,13 @@ pub async fn begin_pull(
     debug!(lc, "Starting pull...");
     let pull_timer = rlog::Timer::new().map_err(InternalTimerError)?;
     let (pull_resp, http_request_info) = puller
-        .pull(&pull_req, &pull_url, &pull_auth, &request_id)
+        .pull(
+            &pull_req,
+            &pull_url,
+            &pull_auth,
+            &request_id,
+            overlapping_requests,
+        )
         .await
         .map_err(PullFailed)?;
 
@@ -344,6 +350,7 @@ pub trait Puller {
         ur: &str,
         auth: &str,
         request_id: &str,
+        overlapping_requests: bool,
     ) -> Result<(Option<PullResponse>, HttpRequestInfo), PullError>;
 }
 
@@ -369,14 +376,21 @@ impl Puller for FetchPuller<'_> {
         url: &str,
         auth: &str,
         request_id: &str,
+        overlapping_requests: bool,
     ) -> Result<(Option<PullResponse>, HttpRequestInfo), PullError> {
         use PullError::*;
-        let http_req = new_pull_http_request(pull_req, url, auth, request_id)?;
+        let http_req = new_http_request(pull_req, url, auth, request_id, overlapping_requests)?;
         let http_resp: http::Response<String> = self
             .fetch_client
             .request(http_req)
             .await
             .map_err(FetchFailed)?;
+        if overlapping_requests {
+            match http_resp.version() {
+                http::Version::HTTP_2 | http::Version::HTTP_3 => (),
+                _ => return Err(IncorrectHttpVersion(http_resp.version())),
+            }
+        }
         let ok = http_resp.status() == http::StatusCode::OK;
         let http_request_info = HttpRequestInfo {
             http_status_code: http_resp.status().into(),
@@ -395,33 +409,22 @@ impl Puller for FetchPuller<'_> {
     }
 }
 
-// Pulled into a helper fn because we use it integration tests.
-pub fn new_pull_http_request(
-    pull_req: &PullRequest,
-    url: &str,
-    auth: &str,
-    request_id: &str,
-) -> Result<http::Request<String>, PullError> {
-    use PullError::*;
-    let body = serde_json::to_string(pull_req).map_err(SerializeRequestError)?;
-    let builder = http::request::Builder::new();
-    let http_req = builder
-        .method("POST")
-        .uri(url)
-        .header("Content-type", "application/json")
-        .header("Authorization", auth)
-        .header("X-Replicache-RequestID", request_id)
-        .body(body)
-        .map_err(InvalidRequest)?;
-    Ok(http_req)
-}
-
 #[derive(Debug)]
 pub enum PullError {
     FetchFailed(FetchError),
+    IncorrectHttpVersion(http::Version),
     InvalidRequest(http::Error),
     InvalidResponse(serde_json::error::Error),
     SerializeRequestError(serde_json::error::Error),
+}
+
+impl From<RequestError> for PullError {
+    fn from(e: RequestError) -> Self {
+        match e {
+            RequestError::InvalidRequest(e) => PullError::InvalidRequest(e),
+            RequestError::SerializeRequestError(e) => PullError::SerializeRequestError(e),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -551,6 +554,7 @@ mod tests {
                     &format!("http://{}{}", addr, path),
                     pull_auth,
                     request_id,
+                    false,
                 )
                 .await;
 
@@ -1009,6 +1013,7 @@ mod tests {
                 &fake_puller,
                 request_id.clone(),
                 &store,
+                false,
                 LogContext::new(),
             )
             .await;
@@ -1161,6 +1166,7 @@ mod tests {
             url: &str,
             auth: &str,
             request_id: &str,
+            _overlapping_requests: bool,
         ) -> Result<(Option<PullResponse>, HttpRequestInfo), PullError> {
             assert_eq!(self.exp_pull_req, pull_req);
             assert_eq!(self.exp_pull_url, url);

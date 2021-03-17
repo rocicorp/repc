@@ -146,6 +146,7 @@ async fn do_open(conns: &mut ConnMap, req: &Request) -> Response {
         dag::Store::new(kv),
         rx,
         client_id.clone(),
+        open_req.overlapping_requests,
         req.lc.clone(),
     ));
     conns.insert(req.db_name.clone(), tx);

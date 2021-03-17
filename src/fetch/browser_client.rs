@@ -2,13 +2,14 @@ use crate::fetch::errors::FetchError;
 use crate::fetch::errors::FetchError::*;
 use crate::fetch::timeout::with_timeout;
 use crate::util::to_debug;
+use crate::util::wasm::global_property;
 use js_sys::{Function, Promise, Reflect};
 use std::convert::TryFrom;
 use std::time::Duration;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{RequestInit, RequestMode};
+use web_sys::{Performance, PerformanceResourceTiming, RequestInit, RequestMode};
 
 // js makes request() map_err calls nicer by converting opaque JsValue errors
 // into js_sys::Error's and debug-printing their content.
@@ -36,12 +37,13 @@ impl Client {
         }
     }
 
-    // request() makes an HTTP request over the network via the browser's Fetch API.
-    // It is intended to be used in wasm; it won't work in regular rust. The response contains
-    // the status and body but not the response headers bc we haven't written that code.
-    // This function consumes the request by design. Non-200 status code is not an Err.
-    // Since there is no web server in wasm and we can't run this function in rust you have
-    // to run the manual test in tests/wasm.rs to test changes.
+    // request() makes an HTTP request over the network via the browser's Fetch
+    // API. It is intended to be used in wasm; it won't work in regular rust.
+    // The response returned will have the version, status and body but not the
+    // response headers bc we haven't written that code. This function consumes
+    // the request by design. Non-200 status code is not an Err. Since there is
+    // no web server in wasm and we can't run this function in rust you have to
+    // run the manual test in tests/wasm.rs to test changes.
     //     _ _   ____  ________          __     _____  ______   _ _
     //    | | | |  _ \|  ____\ \        / /\   |  __ \|  ____| | | |
     //    | | | | |_) | |__   \ \  /\  / /  \  | |__) | |__    | | |
@@ -49,8 +51,8 @@ impl Client {
     //    |_|_| | |_) | |____   \  /\  / ____ \| | \ \| |____  |_|_|
     //    (_|_) |____/|______|   \/  \/_/    \_\_|  \_\______| (_|_)
     //
-    // IF YOU CHANGE THE BEHAVIOR OR CAPABILITIES OF THIS FUNCTION please be sure to reflect
-    // the same changes into the rust client.
+    // IF YOU CHANGE THE BEHAVIOR OR CAPABILITIES OF THIS FUNCTION please be
+    // sure to reflect the same changes into the rust client.
     //
     // TODO log request/response
     pub async fn request(
@@ -69,9 +71,9 @@ impl Client {
         opts.mode(RequestMode::Cors);
         let js_body = JsValue::from_str(http_req.body());
         opts.body(Some(&js_body));
-        let web_sys_req =
-            web_sys::Request::new_with_str_and_init(&http_req.uri().to_string(), &opts)
-                .map_err(|e| UnableToCreateRequest(js(e)))?;
+        let url = http_req.uri().to_string();
+        let web_sys_req = web_sys::Request::new_with_str_and_init(&url, &opts)
+            .map_err(|e| UnableToCreateRequest(js(e)))?;
         let h = web_sys_req.headers();
         for (k, v) in http_req.headers().iter() {
             h.set(
@@ -96,10 +98,12 @@ impl Client {
         let resp_body = body_js_value
             .as_string()
             .ok_or_else(|| ErrorReadingResponseBodyAsString("".to_string()))?;
+        let version = get_http_version_for_url(&url);
 
         let builder = http::response::Builder::new();
         let http_resp = builder
             .status(web_sys_resp.status())
+            .version(version)
             .body(resp_body)
             .map_err(|e| FailedToWrapHttpResponse(to_debug(e)))?;
         Ok(http_resp)
@@ -121,4 +125,19 @@ fn fetch_with_request(req: &web_sys::Request) -> Result<Promise, FetchError> {
         .map_err(FetchFailed)?
         .dyn_into()
         .map_err(FetchFailed)
+}
+
+fn get_http_version_for_url(url: &str) -> http::Version {
+    let performance =
+        global_property::<Performance>("performance").expect("performance should be available");
+    let arr: js_sys::Array = performance.get_entries_by_name(url);
+    for entry in arr.iter() {
+        let entry = entry.unchecked_into::<PerformanceResourceTiming>();
+        return match entry.next_hop_protocol().as_str() {
+            "h2" => http::Version::HTTP_2,
+            "h3" => http::Version::HTTP_3,
+            _ => http::Version::default(),
+        };
+    }
+    http::Version::default()
 }
