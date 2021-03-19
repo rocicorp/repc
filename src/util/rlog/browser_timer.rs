@@ -5,6 +5,12 @@ pub struct Timer {
     start_ms: f64,
 }
 
+impl Default for Timer {
+    fn default() -> Self {
+        Timer::new()
+    }
+}
+
 impl Timer {
     pub fn new() -> Timer {
         // Consider using Date.now() since we do not use the fractions anyway

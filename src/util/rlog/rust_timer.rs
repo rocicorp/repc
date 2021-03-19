@@ -4,6 +4,12 @@ pub struct Timer {
     start: Instant,
 }
 
+impl Default for Timer {
+    fn default() -> Self {
+        Timer::new()
+    }
+}
+
 impl Timer {
     pub fn new() -> Timer {
         Timer {
