@@ -1,7 +1,6 @@
 // @ts-check
 
 const RELAXED = {durability: "relaxed"};
-
 const OBJECT_STORE = "chunks";
 
 /**
@@ -9,7 +8,7 @@ const OBJECT_STORE = "chunks";
  * @return {IDBTransaction}
  */
 export function readTransaction(idb) {
-  return idb.transaction(OBJECT_STORE, "readwrite");
+  return idb.transaction(OBJECT_STORE, "readonly");
 }
 
 /**
