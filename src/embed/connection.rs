@@ -11,10 +11,9 @@ use async_std::stream::StreamExt;
 use async_std::sync::{Receiver, RecvError, RwLock};
 use futures::stream::futures_unordered::FuturesUnordered;
 use js_sys::{Function, Reflect, Uint8Array};
-use log::warn;
 use std::collections::HashMap;
+use std::mem;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::{collections::HashMap, mem};
 use wasm_bindgen::{JsCast, JsValue};
 
 lazy_static! {
@@ -174,7 +173,7 @@ enum ExecuteError {
 #[repr(u8)]
 #[derive(Debug, PartialEq)]
 pub enum Rpc {
-    BeginSync = 1,
+    BeginTryPull = 1,
     Close = 2,
     CloseTransaction = 3,
     CommitTransaction = 4,
@@ -185,18 +184,19 @@ pub enum Rpc {
     Get = 9,
     GetRoot = 10,
     Has = 11,
-    MaybeEndSync = 12,
+    MaybeEndTryPull = 12,
     Open = 13,
     OpenIndexTransaction = 14,
     OpenTransaction = 15,
     Put = 16,
     Scan = 17,
     SetLogLevel = 18,
+    TryPush = 19,
 }
 
 impl Rpc {
     pub fn from_u8(n: u8) -> Option<Rpc> {
-        if n >= Self::BeginSync as u8 && n <= Self::SetLogLevel as u8 {
+        if n >= Self::BeginTryPull as u8 && n <= Self::TryPush as u8 {
             Some(unsafe { mem::transmute(n) })
         } else {
             None
@@ -217,14 +217,14 @@ async fn execute<'a, 'b>(
         Rpc::OpenIndexTransaction => {
             return to_js(do_open_index_transaction(ctx, from_js(data)?).await)
         }
-        RPC::OpenTransaction => return to_js(do_open_transaction(ctx, from_js(data)?).await),
-        RPC::CommitTransaction => return to_js(do_commit(ctx, from_js(data)?).await),
-        RPC::CloseTransaction => return to_js(do_close_transaction(ctx, from_js(data)?).await),
-        RPC::SetLogLevel => return to_js(do_set_log_level(ctx, from_js(data)?).await),
+        Rpc::OpenTransaction => return to_js(do_open_transaction(ctx, from_js(data)?).await),
+        Rpc::CommitTransaction => return to_js(do_commit(ctx, from_js(data)?).await),
+        Rpc::CloseTransaction => return to_js(do_close_transaction(ctx, from_js(data)?).await),
+        Rpc::SetLogLevel => return to_js(do_set_log_level(ctx, from_js(data)?).await),
 
-        RPC::TryPush => return to_js(do_try_push(ctx, from_js(data)?).await),
-        RPC::BeginTryPull => return to_js(do_begin_try_pull(ctx, from_js(data)?).await),
-        RPC::MaybeEndTryPull => return to_js(do_maybe_end_try_pull(ctx, from_js(data)?).await),
+        Rpc::TryPush => return to_js(do_try_push(ctx, from_js(data)?).await),
+        Rpc::BeginTryPull => return to_js(do_begin_try_pull(ctx, from_js(data)?).await),
+        Rpc::MaybeEndTryPull => return to_js(do_maybe_end_try_pull(ctx, from_js(data)?).await),
 
         _ => (),
     };
