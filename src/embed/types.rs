@@ -1,7 +1,8 @@
 #![allow(clippy::redundant_pattern_matching)] // For derive(Deserialize).
 
-use crate::db;
+use crate::db::{self, ScanOptions};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct OpenRequest {
@@ -27,6 +28,8 @@ pub struct OpenTransactionRequest {
     #[serde(rename = "rebaseOpts")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rebase_opts: Option<RebaseOpts>,
+    #[serde(default, rename = "isSubscription")]
+    pub is_subscription: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -46,6 +49,8 @@ pub struct OpenTransactionResponse {
 pub struct CommitTransactionRequest {
     #[serde(rename = "transactionId")]
     pub transaction_id: u32,
+    #[serde(rename = "generateDiffs")]
+    pub generate_diffs: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -53,6 +58,7 @@ pub struct CommitTransactionResponse {
     // Note: the field is named "ref" in go but "ref" is a reserved word in rust.
     #[serde(rename = "ref")]
     pub hash: String,
+    pub diffs: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -61,8 +67,12 @@ pub struct CloseTransactionRequest {
     pub transaction_id: u32,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct CloseTransactionResponse {}
+#[derive(Deserialize, Serialize)]
+#[cfg_attr(test, derive(Debug))]
+pub struct CloseTransactionResponse {
+    pub keys: Vec<String>,
+    pub scans: Vec<ScanOptions>,
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct TransactionRequest {
@@ -109,7 +119,8 @@ pub struct GetResponse {
     pub has: bool, // Second to avoid trailing comma if value == None.
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
+#[cfg_attr(test, derive(Debug))]
 pub struct ScanRequest {
     #[serde(rename = "transactionId")]
     pub transaction_id: u32,

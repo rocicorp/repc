@@ -33,7 +33,7 @@ use str_macro::str;
 //
 // NOTE that in above for index scans if you provide Some start_key, the
 // secondary_index_key is treated as an exact match.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct ScanOptions {
     pub prefix: Option<String>,
     pub start_secondary_key: Option<String>,
@@ -53,7 +53,7 @@ pub struct ScanOptions {
 // You'll note that 'start_exclusive' is missing. That's because
 // of the above-mentioned scan prep; exclusive is implemented by scanning
 // for the next value after the one provided.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ScanOptionsInternal {
     pub prefix: Option<Vec<u8>>,
     pub start_key: Option<Vec<u8>>,
@@ -203,9 +203,9 @@ mod tests {
     use super::*;
     use std::convert::TryInto;
 
-    #[test]
-    fn test_scan() {
-        fn test(opts: ScanOptions, expected: Vec<&str>) {
+    #[async_std::test]
+    async fn test_scan() {
+        async fn test(opts: ScanOptions, expected: Vec<&str>) {
             let test_desc = format!("opts: {:?}, expected: {:?}", &opts, &expected);
             let mut map = prolly::Map::new();
             map.put(b"foo".to_vec(), b"foo".to_vec());
@@ -235,7 +235,8 @@ mod tests {
                 index_name: None,
             },
             vec!["bar", "baz", "foo"],
-        );
+        )
+        .await;
 
         // Prefix alone
         test(
@@ -248,7 +249,8 @@ mod tests {
                 index_name: None,
             },
             vec!["bar", "baz", "foo"],
-        );
+        )
+        .await;
         test(
             ScanOptions {
                 prefix: Some("ba".into()),
@@ -259,7 +261,8 @@ mod tests {
                 index_name: None,
             },
             vec!["bar", "baz"],
-        );
+        )
+        .await;
         test(
             ScanOptions {
                 prefix: Some("bar".into()),
@@ -270,7 +273,8 @@ mod tests {
                 index_name: None,
             },
             vec!["bar"],
-        );
+        )
+        .await;
         test(
             ScanOptions {
                 prefix: Some("bas".into()),
@@ -281,7 +285,8 @@ mod tests {
                 index_name: None,
             },
             vec![],
-        );
+        )
+        .await;
         // start key alone
         test(
             ScanOptions {
@@ -293,7 +298,8 @@ mod tests {
                 index_name: None,
             },
             vec!["bar", "baz", "foo"],
-        );
+        )
+        .await;
         test(
             ScanOptions {
                 prefix: None,
@@ -304,7 +310,8 @@ mod tests {
                 index_name: None,
             },
             vec!["bar", "baz", "foo"],
-        );
+        )
+        .await;
         test(
             ScanOptions {
                 prefix: None,
@@ -315,7 +322,8 @@ mod tests {
                 index_name: None,
             },
             vec!["bar", "baz", "foo"],
-        );
+        )
+        .await;
         test(
             ScanOptions {
                 prefix: None,
@@ -326,7 +334,8 @@ mod tests {
                 index_name: None,
             },
             vec!["baz", "foo"],
-        );
+        )
+        .await;
         test(
             ScanOptions {
                 prefix: None,
@@ -337,7 +346,8 @@ mod tests {
                 index_name: None,
             },
             vec!["baz", "foo"],
-        );
+        )
+        .await;
         test(
             ScanOptions {
                 prefix: None,
@@ -348,7 +358,8 @@ mod tests {
                 index_name: None,
             },
             vec!["foo"],
-        );
+        )
+        .await;
         test(
             ScanOptions {
                 prefix: None,
@@ -359,7 +370,8 @@ mod tests {
                 index_name: None,
             },
             vec![],
-        );
+        )
+        .await;
 
         // exclusive
         test(
@@ -372,7 +384,8 @@ mod tests {
                 index_name: None,
             },
             vec!["bar", "baz", "foo"],
-        );
+        )
+        .await;
         test(
             ScanOptions {
                 prefix: None,
@@ -383,7 +396,8 @@ mod tests {
                 index_name: None,
             },
             vec!["baz", "foo"],
-        );
+        )
+        .await;
 
         // limit alone
         test(
@@ -396,7 +410,8 @@ mod tests {
                 index_name: None,
             },
             vec![],
-        );
+        )
+        .await;
         test(
             ScanOptions {
                 prefix: None,
@@ -407,7 +422,8 @@ mod tests {
                 index_name: None,
             },
             vec!["bar"],
-        );
+        )
+        .await;
         test(
             ScanOptions {
                 prefix: None,
@@ -418,7 +434,8 @@ mod tests {
                 index_name: None,
             },
             vec!["bar", "baz"],
-        );
+        )
+        .await;
         test(
             ScanOptions {
                 prefix: None,
@@ -429,7 +446,8 @@ mod tests {
                 index_name: None,
             },
             vec!["bar", "baz", "foo"],
-        );
+        )
+        .await;
         test(
             ScanOptions {
                 prefix: None,
@@ -440,7 +458,8 @@ mod tests {
                 index_name: None,
             },
             vec!["bar", "baz", "foo"],
-        );
+        )
+        .await;
 
         // combos
         test(
@@ -453,7 +472,8 @@ mod tests {
                 index_name: None,
             },
             vec![],
-        );
+        )
+        .await;
         test(
             ScanOptions {
                 prefix: Some("f".into()),
@@ -464,7 +484,8 @@ mod tests {
                 index_name: None,
             },
             vec!["foo"],
-        );
+        )
+        .await;
         test(
             ScanOptions {
                 prefix: Some("ba".into()),
@@ -475,7 +496,8 @@ mod tests {
                 index_name: None,
             },
             vec!["bar", "baz"],
-        );
+        )
+        .await;
         test(
             ScanOptions {
                 prefix: Some("ba".into()),
@@ -486,7 +508,8 @@ mod tests {
                 index_name: None,
             },
             vec!["bar"],
-        );
+        )
+        .await;
         test(
             ScanOptions {
                 prefix: Some("ba".into()),
@@ -497,7 +520,8 @@ mod tests {
                 index_name: None,
             },
             vec!["bar"],
-        );
+        )
+        .await;
         test(
             ScanOptions {
                 prefix: Some("ba".into()),
@@ -508,12 +532,13 @@ mod tests {
                 index_name: None,
             },
             vec!["baz"],
-        );
+        )
+        .await;
     }
 
-    #[test]
-    fn test_exclusive_regular_map() {
-        fn test(keys: Vec<&str>, start_key: &str, expected: Vec<&str>) {
+    #[async_std::test]
+    async fn test_exclusive_regular_map() {
+        async fn test(keys: Vec<&str>, start_key: &str, expected: Vec<&str>) {
             let test_desc = format!(
                 "keys: {:?}, start_key: {:?}, expected: {:?}",
                 keys, start_key, expected
@@ -543,15 +568,16 @@ mod tests {
             vec!["", "a", "aa", "ab", "b"],
             "",
             vec!["a", "aa", "ab", "b"],
-        );
-        test(vec!["", "a", "aa", "ab", "b"], "a", vec!["aa", "ab", "b"]);
-        test(vec!["", "a", "aa", "ab", "b"], "aa", vec!["ab", "b"]);
-        test(vec!["", "a", "aa", "ab", "b"], "ab", vec!["b"]);
+        )
+        .await;
+        test(vec!["", "a", "aa", "ab", "b"], "a", vec!["aa", "ab", "b"]).await;
+        test(vec!["", "a", "aa", "ab", "b"], "aa", vec!["ab", "b"]).await;
+        test(vec!["", "a", "aa", "ab", "b"], "ab", vec!["b"]).await;
     }
 
-    #[test]
-    fn test_exclusive_index_map() {
-        fn test(
+    #[async_std::test]
+    async fn test_exclusive_index_map() {
+        async fn test(
             entries: Vec<(&str, &[u8])>,
             start_secondary_key: &str,
             start_key: Option<&str>,
@@ -597,25 +623,29 @@ mod tests {
                 "",
                 None,
                 vec![("a", pk), ("aa", pk), ("ab", pk), ("b", pk)],
-            );
+            )
+            .await;
             test(
                 vec![("", pk), ("a", pk), ("aa", pk), ("ab", pk), ("b", pk)],
                 "a",
                 None,
                 vec![("aa", pk), ("ab", pk), ("b", pk)],
-            );
+            )
+            .await;
             test(
                 vec![("", pk), ("a", pk), ("aa", pk), ("ab", pk), ("b", pk)],
                 "aa",
                 None,
                 vec![("ab", pk), ("b", pk)],
-            );
+            )
+            .await;
             test(
                 vec![("", pk), ("a", pk), ("aa", pk), ("ab", pk), ("b", pk)],
                 "ab",
                 None,
                 vec![("b", pk)],
-            );
+            )
+            .await;
         }
 
         // Test exclusive scanning with start_secondary_key and start_key,
@@ -631,7 +661,8 @@ mod tests {
             "a",
             Some(""),
             vec![("a", &[0]), ("a", &[0, 0]), ("a", &[0, 1]), ("a", &[1])],
-        );
+        )
+        .await;
         test(
             vec![
                 ("a", &[]),
@@ -643,7 +674,8 @@ mod tests {
             "a",
             Some("\u{0000}"),
             vec![("a", &[0, 0]), ("a", &[0, 1]), ("a", &[1])],
-        );
+        )
+        .await;
         test(
             vec![
                 ("a", &[]),
@@ -655,7 +687,8 @@ mod tests {
             "a",
             Some("\u{0000}\u{0000}"),
             vec![("a", &[0, 1]), ("a", &[1])],
-        );
+        )
+        .await;
         test(
             vec![
                 ("a", &[]),
@@ -667,7 +700,8 @@ mod tests {
             "a",
             Some("\u{0000}\u{0001}"),
             vec![("a", &[1])],
-        );
+        )
+        .await;
 
         // Test exclusive scanning with start_secondary_key and start_key,
         // with different secondary values.
@@ -682,7 +716,8 @@ mod tests {
             "",
             Some(""),
             vec![("a", &[0]), ("aa", &[0, 0]), ("ab", &[0, 1]), ("b", &[1])],
-        );
+        )
+        .await;
         test(
             vec![
                 ("", &[]),
@@ -694,7 +729,8 @@ mod tests {
             "a",
             Some("\u{0000}"),
             vec![("aa", &[0, 0]), ("ab", &[0, 1]), ("b", &[1])],
-        );
+        )
+        .await;
         test(
             vec![
                 ("", &[]),
@@ -706,7 +742,8 @@ mod tests {
             "aa",
             Some("\u{0000}\u{0000}"),
             vec![("ab", &[0, 1]), ("b", &[1])],
-        );
+        )
+        .await;
         test(
             vec![
                 ("", &[]),
@@ -718,6 +755,7 @@ mod tests {
             "ab",
             Some("\u{0000}\u{0001}"),
             vec![("b", &[1])],
-        );
+        )
+        .await;
     }
 }

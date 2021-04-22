@@ -8,12 +8,14 @@ use crate::db;
 use crate::db::{Commit, MetaTyped, Whence, DEFAULT_HEAD_NAME};
 use crate::fetch;
 use crate::fetch::errors::FetchError;
+use crate::prolly;
 use crate::util::rlog;
 use crate::util::rlog::LogContext;
 use async_trait::async_trait;
 use log::log_enabled;
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::HashMap;
+use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::default::Default;
 use std::fmt::Debug;
 use str_macro::str;
@@ -178,7 +180,10 @@ pub async fn begin_pull(
         .await
         .map_err(PatchFailed)?;
 
-    let commit_hash = db_write.commit(SYNC_HEAD_NAME).await.map_err(CommitError)?;
+    let (commit_hash, _) = db_write
+        .commit(SYNC_HEAD_NAME, false)
+        .await
+        .map_err(CommitError)?;
 
     Ok(BeginTryPullResponse {
         http_request_info: HttpRequestInfo {
@@ -221,9 +226,15 @@ pub async fn maybe_end_try_pull(
         .await
         .map_err(GetMainHeadError)?
         .ok_or(MissingMainHead)?;
+
     let main_snapshot = Commit::base_snapshot(&main_head_hash, &dag_read)
         .await
         .map_err(NoBaseSnapshot)?;
+
+    let old_main_head_map = prolly::Map::load(main_snapshot.value_hash(), &dag_read)
+        .await
+        .map_err(LoadHeadError)?;
+
     let meta = sync_snapshot.meta();
     let sync_snapshot_basis = meta.basis_hash().ok_or(SyncSnapshotWithNoBasis)?;
     if sync_snapshot_basis != main_snapshot.chunk().hash() {
@@ -269,10 +280,17 @@ pub async fn maybe_end_try_pull(
         return Ok(MaybeEndTryPullResponse {
             sync_head: sync_head_hash,
             replay_mutations,
+            diffs: BTreeMap::new(),
         });
     }
 
     // TODO check invariants
+
+    let new_main_head_map = prolly::Map::load(sync_head.value_hash(), &dag_write.read())
+        .await
+        .map_err(LoadHeadError)?;
+
+    let diff = prolly::Map::diff(&old_main_head_map, &new_main_head_map);
 
     // No mutations to replay so set the main head to the sync head and sync complete!
     dag_write
@@ -301,9 +319,16 @@ pub async fn maybe_end_try_pull(
             main_snapshot.value_hash()
         );
     }
+    let main_diff = diff.map_err(InvalidUtf8)?;
+    let mut diffs = BTreeMap::new();
+    if !main_diff.is_empty() {
+        diffs.insert(str!(""), main_diff);
+    }
+
     Ok(MaybeEndTryPullResponse {
         sync_head: sync_head_hash.to_string(),
         replay_mutations: Vec::new(),
+        diffs,
     })
 }
 
@@ -958,6 +983,7 @@ mod tests {
                 let read = db::OwnedRead::from_whence(
                     db::Whence::Head(DEFAULT_HEAD_NAME.to_string()),
                     dag_read,
+                    None,
                 )
                 .await
                 .unwrap();
@@ -1073,6 +1099,7 @@ mod tests {
                     let read = db::OwnedRead::from_whence(
                         db::Whence::Head(SYNC_HEAD_NAME.to_string()),
                         dag_read,
+                        None,
                     )
                     .await
                     .unwrap();
@@ -1256,7 +1283,7 @@ mod tests {
             )
             .await
             .unwrap();
-            let mut basis_hash = w.commit(SYNC_HEAD_NAME).await.unwrap();
+            let (mut basis_hash, _) = w.commit(SYNC_HEAD_NAME, false).await.unwrap();
 
             if c.intervening_sync {
                 add_snapshot(&mut chain, &store, None).await;
@@ -1281,7 +1308,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-                basis_hash = w.commit(SYNC_HEAD_NAME).await.unwrap();
+                basis_hash = w.commit(SYNC_HEAD_NAME, false).await.unwrap().0;
             }
             let sync_head = basis_hash;
 

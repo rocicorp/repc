@@ -68,6 +68,9 @@ mod tests {
     use std::collections::HashMap;
 
     macro_rules! map(
+        () => (
+            ::std::collections::HashMap::new()
+        );
         { $($key:expr => $value:expr),+ } => {
             {
                 let mut m = ::std::collections::HashMap::new();
@@ -243,13 +246,13 @@ mod tests {
                 for (k, v) in map {
                     assert_eq!(
                         Some(v.as_bytes()),
-                        db_write.as_read().get(k.as_bytes()),
+                        db_write.as_read().get(k.as_bytes()).await,
                         "{}",
                         c.name
                     );
                 }
                 if map.len() == 0 {
-                    assert!(!db_write.as_read().has("key".as_bytes()));
+                    assert!(!db_write.as_read().has("key".as_bytes()).await);
                 }
             }
         }

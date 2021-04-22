@@ -70,6 +70,7 @@ async fn open_transaction(
     fn_name: Option<String>,
     args: Option<serde_json::Value>,
     rebase_opts: Option<RebaseOpts>,
+    is_subscription: bool,
 ) -> OpenTransactionResponse {
     dispatch(
         db_name,
@@ -77,7 +78,8 @@ async fn open_transaction(
         &OpenTransactionRequest {
             name: fn_name,
             args: Some(serde_json::to_string(&args).unwrap()),
-            rebase_opts: rebase_opts,
+            rebase_opts,
+            is_subscription,
         },
     )
     .await
@@ -158,7 +160,7 @@ async fn scan(
                 start_key: start_key.map(|s| s.to_string()),
                 start_exclusive: Some(exclusive),
                 limit: None,
-                index_name: index_name.map(|s| s.into()),
+                index_name: index_name.map(|s| s.to_string()),
             },
             receiver: None,
         },
@@ -182,24 +184,31 @@ async fn del(db_name: &str, txn_id: u32, key: &str) -> bool {
     response.had
 }
 
-async fn commit(db_name: &str, transaction_id: u32) -> CommitTransactionResponse {
+async fn commit(
+    db_name: &str,
+    transaction_id: u32,
+    generate_diffs: bool,
+) -> CommitTransactionResponse {
     dispatch(
         db_name,
         Rpc::CommitTransaction,
-        &CommitTransactionRequest { transaction_id },
+        &CommitTransactionRequest {
+            transaction_id,
+            generate_diffs,
+        },
     )
     .await
     .unwrap()
 }
 
-async fn abort(db_name: &str, transaction_id: u32) {
-    let _: CloseTransactionResponse = dispatch(
+async fn close(db_name: &str, transaction_id: u32) -> CloseTransactionResponse {
+    dispatch(
         db_name,
         Rpc::CloseTransaction,
         &CloseTransactionRequest { transaction_id },
     )
     .await
-    .unwrap();
+    .unwrap()
 }
 
 fn is_valid_client_id(s: &str) -> bool {
@@ -292,7 +301,7 @@ async fn test_concurrency_within_a_read_tx() {
             "client_id \"{}\" does not look like a UUID",
             client_id
         );
-        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
+        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false)
             .await
             .transaction_id;
         let now_ms = performance_now();
@@ -307,7 +316,7 @@ async fn test_concurrency_within_a_read_tx() {
             }
         );
         let elapsed_ms = performance_now() - now_ms;
-        abort(db, txn_id).await;
+        close(db, txn_id).await;
         assert_eq!(dispatch::<_, String>(db, Rpc::Close, "").await.unwrap(), "");
         assert_eq!(elapsed_ms >= 100., true);
         assert_eq!(elapsed_ms < 200., true);
@@ -324,11 +333,11 @@ async fn test_write_txs_dont_run_concurrently() {
         dispatch::<_, String>(db, Rpc::Open, OpenRequest { use_memstore })
             .await
             .unwrap();
-        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
+        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false)
             .await
             .transaction_id;
         put(db, txn_id, "value", "0").await;
-        commit(db, txn_id).await;
+        commit(db, txn_id, false).await;
 
         // To verify that write transactions don't overlap we start parallel tasks that
         // increment an atomic counter when they begin and decrement it just before they
@@ -339,9 +348,10 @@ async fn test_write_txs_dont_run_concurrently() {
         let counter = AtomicU32::new(0);
         join!(
             async {
-                let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
-                    .await
-                    .transaction_id;
+                let txn_id =
+                    open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false)
+                        .await
+                        .transaction_id;
                 let value = get(db, txn_id, "value")
                     .await
                     .unwrap()
@@ -355,12 +365,13 @@ async fn test_write_txs_dont_run_concurrently() {
                 put(db, txn_id, "value", &(value + 1).to_string()).await;
                 // Asserting not strictly required but easy so why not:
                 assert_eq!(1, counter.fetch_sub(1, Ordering::SeqCst));
-                commit(db, txn_id).await;
+                commit(db, txn_id, false).await;
             },
             async {
-                let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
-                    .await
-                    .transaction_id;
+                let txn_id =
+                    open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false)
+                        .await
+                        .transaction_id;
                 let value = get(db, txn_id, "value")
                     .await
                     .unwrap()
@@ -370,12 +381,13 @@ async fn test_write_txs_dont_run_concurrently() {
                 get(db, txn_id, "spin20").await;
                 put(db, txn_id, "value", &(value + 2).to_string()).await;
                 assert_eq!(1, counter.fetch_sub(1, Ordering::SeqCst));
-                commit(db, txn_id).await;
+                commit(db, txn_id, false).await;
             },
             async {
-                let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
-                    .await
-                    .transaction_id;
+                let txn_id =
+                    open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false)
+                        .await
+                        .transaction_id;
                 let value = get(db, txn_id, "value")
                     .await
                     .unwrap()
@@ -385,10 +397,10 @@ async fn test_write_txs_dont_run_concurrently() {
                 get(db, txn_id, "spin20").await;
                 put(db, txn_id, "value", &(value + 3).to_string()).await;
                 assert_eq!(1, counter.fetch_sub(1, Ordering::SeqCst));
-                commit(db, txn_id).await;
+                commit(db, txn_id, false).await;
             }
         );
-        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
+        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false)
             .await
             .transaction_id;
         assert_eq!(
@@ -399,7 +411,7 @@ async fn test_write_txs_dont_run_concurrently() {
                 .unwrap(),
             6
         );
-        abort(db, txn_id).await;
+        close(db, txn_id).await;
 
         assert_eq!(dispatch::<_, String>(db, Rpc::Close, "").await.unwrap(), "");
     }
@@ -413,11 +425,11 @@ async fn test_read_txs_do_run_concurrently() {
         dispatch::<_, String>(db, Rpc::Open, OpenRequest { use_memstore })
             .await
             .unwrap();
-        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
+        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false)
             .await
             .transaction_id;
         put(db, txn_id, "value", "42").await;
-        commit(db, txn_id).await;
+        commit(db, txn_id, false).await;
 
         // To verify that read transactions do overlap we start two parallel tasks that
         // increment an same atomic counter when they begin. If when one begins the
@@ -428,7 +440,9 @@ async fn test_read_txs_do_run_concurrently() {
         let counter = AtomicU32::new(0);
         join!(
             async {
-                let txn_id = open_transaction(db, None, None, None).await.transaction_id;
+                let txn_id = open_transaction(db, None, None, None, false)
+                    .await
+                    .transaction_id;
                 let value = get(db, txn_id, "value")
                     .await
                     .unwrap()
@@ -449,10 +463,12 @@ async fn test_read_txs_do_run_concurrently() {
                 if other_tasks_running > 0 {
                     counter.fetch_sub(1, Ordering::SeqCst);
                 }
-                abort(db, txn_id).await;
+                close(db, txn_id).await;
             },
             async {
-                let txn_id = open_transaction(db, None, None, None).await.transaction_id;
+                let txn_id = open_transaction(db, None, None, None, false)
+                    .await
+                    .transaction_id;
                 let value = get(db, txn_id, "value")
                     .await
                     .unwrap()
@@ -470,7 +486,7 @@ async fn test_read_txs_do_run_concurrently() {
                 if other_tasks_running > 0 {
                     counter.fetch_sub(1, Ordering::SeqCst);
                 }
-                abort(db, txn_id).await;
+                close(db, txn_id).await;
             },
         );
         assert!(counter.into_inner() > 0);
@@ -507,7 +523,7 @@ async fn test_get_put_del() {
             client_id
         );
 
-        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
+        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false)
             .await
             .transaction_id;
 
@@ -517,10 +533,10 @@ async fn test_get_put_del() {
         // TODO(nate): Resolve how to pass non-UTF-8 sequences through the API.
         put(db, txn_id, "Hello", "世界").await;
         assert_eq!(get(db, txn_id, "Hello").await.unwrap(), "世界");
-        commit(db, txn_id).await;
+        commit(db, txn_id, false).await;
 
         // Open new transaction, and verify write is persistent.
-        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
+        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false)
             .await
             .transaction_id;
         assert_eq!(get(db, txn_id, "Hello").await.unwrap(), "世界");
@@ -532,28 +548,28 @@ async fn test_get_put_del() {
         assert_eq!(has(db, txn_id, "你好").await, true);
         assert_eq!(get(db, txn_id, "你好").await, Some("world".into()));
 
-        commit(db, txn_id).await;
-        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
+        commit(db, txn_id, false).await;
+        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false)
             .await
             .transaction_id;
         assert_eq!(has(db, txn_id, "你好").await, true);
         assert_eq!(get(db, txn_id, "你好").await, Some("world".into()));
-        abort(db, txn_id).await;
+        close(db, txn_id).await;
 
         // Delete a key
-        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
+        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false)
             .await
             .transaction_id;
         assert_eq!(del(db, txn_id, "Hello").await, true);
         assert_eq!(has(db, txn_id, "Hello").await, false);
         assert_eq!(del(db, txn_id, "Hello").await, false);
-        commit(db, txn_id).await;
+        commit(db, txn_id, false).await;
 
-        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
+        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false)
             .await
             .transaction_id;
         assert_eq!(has(db, txn_id, "Hello").await, false);
-        abort(db, txn_id).await;
+        close(db, txn_id).await;
 
         assert_eq!(dispatch::<_, String>(db, Rpc::Close, "").await.unwrap(), "");
     }
@@ -585,7 +601,7 @@ async fn test_create_drop_index() {
         )
         .await
         .unwrap();
-        commit(db, transaction_id).await;
+        commit(db, transaction_id, false).await;
 
         // Ensure we can't create an index of the same name with different definition.
         let transaction_id = open_index_transaction(db).await.transaction_id;
@@ -602,17 +618,19 @@ async fn test_create_drop_index() {
         .await
         .unwrap_err();
         assert_eq!("DBError(IndexExistsWithDifferentDefinition)", response);
-        abort(db, transaction_id).await;
+        close(db, transaction_id).await;
 
         // Ensure the index can be used: insert a value and ensure it scans.
-        let transaction_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
-            .await
-            .transaction_id;
+        let transaction_id =
+            open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false)
+                .await
+                .transaction_id;
         put(db, transaction_id, "boo", r#"{"s": "foo"}"#).await;
-        commit(db, transaction_id).await;
-        let transaction_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
-            .await
-            .transaction_id;
+        commit(db, transaction_id, false).await;
+        let transaction_id =
+            open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false)
+                .await
+                .transaction_id;
         let expected = vec![(str!("boo"), str!("foo"), str!(r#"{"s": "foo"}"#))];
         {
             let (receive, _cb, got) = new_test_scan_receiver();
@@ -629,7 +647,7 @@ async fn test_create_drop_index() {
             .await;
             assert_eq!(&expected, &*got.borrow());
         }
-        abort(db, transaction_id).await;
+        close(db, transaction_id).await;
 
         // Check that drop works.
         let transaction_id = open_index_transaction(db).await.transaction_id;
@@ -643,12 +661,13 @@ async fn test_create_drop_index() {
         )
         .await
         .unwrap();
-        commit(db, transaction_id).await;
+        commit(db, transaction_id, false).await;
 
         // Ensure the index cannot be used.
-        let transaction_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
-            .await
-            .transaction_id;
+        let transaction_id =
+            open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false)
+                .await
+                .transaction_id;
         {
             let (receive, _cb, _got) = new_test_scan_receiver();
             let scan_result: Result<ScanResponse, String> = dispatch_with_scan_receiver(
@@ -674,7 +693,7 @@ async fn test_create_drop_index() {
                 &scan_result.unwrap_err()
             );
         }
-        abort(db, transaction_id).await;
+        close(db, transaction_id).await;
 
         // Check that dropping a non-existent index errors.
         let transaction_id = open_index_transaction(db).await.transaction_id;
@@ -689,7 +708,7 @@ async fn test_create_drop_index() {
         .await
         .unwrap_err();
         assert_eq!(str!("DBError(NoSuchIndexError(\"idx1\"))"), result);
-        abort(db, transaction_id).await;
+        close(db, transaction_id).await;
 
         assert_eq!(dispatch::<_, String>(db, Rpc::Close, "").await.unwrap(), "");
     }
@@ -717,17 +736,20 @@ async fn test_scan() {
             dispatch::<_, String>(db, Rpc::Open, OpenRequest { use_memstore })
                 .await
                 .unwrap();
-            let mut txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
-                .await
-                .transaction_id;
+            let mut txn_id =
+                open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false)
+                    .await
+                    .transaction_id;
 
             for entry in &entries {
                 put(db, txn_id, entry.0, entry.1).await;
             }
 
             if !scan_in_write_txn {
-                commit(db, txn_id).await;
-                txn_id = open_transaction(db, None, None, None).await.transaction_id;
+                commit(db, txn_id, false).await;
+                txn_id = open_transaction(db, None, None, None, false)
+                    .await
+                    .transaction_id;
             }
 
             let (receive, _cb, got) = new_test_scan_receiver();
@@ -744,7 +766,7 @@ async fn test_scan() {
             .await;
             assert_eq!(&expected, &*got.borrow());
 
-            abort(db, txn_id).await;
+            close(db, txn_id).await;
             dispatch::<_, String>(db, Rpc::Close, "").await.unwrap();
         }
     }
@@ -880,13 +902,13 @@ async fn test_scan_with_index() {
         )
         .await
         .unwrap();
-        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
+        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false)
             .await
             .transaction_id;
         for entry in &entries {
             put(db, txn_id, entry.0, entry.1).await;
         }
-        commit(db, txn_id).await;
+        commit(db, txn_id, false).await;
         dispatch::<_, String>(db, Rpc::Close, "").await.unwrap();
 
         dispatch::<_, String>(
@@ -911,11 +933,12 @@ async fn test_scan_with_index() {
         )
         .await
         .unwrap();
-        commit(db, txn_id).await;
+        commit(db, txn_id, false).await;
 
-        let mut txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
-            .await
-            .transaction_id;
+        let mut txn_id =
+            open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false)
+                .await
+                .transaction_id;
         match &op {
             Op::None => {}
             Op::Del(key) => {
@@ -925,8 +948,10 @@ async fn test_scan_with_index() {
         }
 
         if !scan_in_write_txn {
-            commit(db, txn_id).await;
-            txn_id = open_transaction(db, None, None, None).await.transaction_id;
+            commit(db, txn_id, false).await;
+            txn_id = open_transaction(db, None, None, None, false)
+                .await
+                .transaction_id;
         }
 
         let (receive, _cb, got) = new_test_scan_receiver();
@@ -943,7 +968,7 @@ async fn test_scan_with_index() {
         .await;
         assert_eq!(&expected, &*got.borrow());
 
-        abort(db, txn_id).await;
+        close(db, txn_id).await;
         dispatch::<_, String>(db, Rpc::Close, "").await.unwrap();
     }
 
@@ -1352,11 +1377,11 @@ async fn test_get_root() {
                 root: str!("0rq1efi2innh6ci15bsf3td7rr0luqme"),
             }
         );
-        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None)
+        let txn_id = open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false)
             .await
             .transaction_id;
         put(db, txn_id, "foo", "bar").await;
-        let _ = commit(db, txn_id).await;
+        let _ = commit(db, txn_id, false).await;
         assert_eq!(
             dispatch::<_, GetRootResponse>(db, Rpc::GetRoot, GetRootRequest { head_name: None })
                 .await
@@ -1473,4 +1498,153 @@ async fn test_make_random_numbers() {
     // Just testing that it doesn't return error...
     let mut numbers = [0u8; 4];
     make_random_numbers(&mut numbers).unwrap();
+}
+
+macro_rules! map(
+    () => (
+        ::std::collections::BTreeMap::new()
+    );
+    { $($key:expr => $value:expr),+ } => {
+        {
+            let mut m = ::std::collections::BTreeMap::new();
+            $(
+                m.insert($key.to_string(), $value.iter().map(|s|s.to_string()).collect());
+            )+
+            m
+        }
+     };
+);
+
+#[wasm_bindgen_test]
+async fn test_subscription_query_no_index() {
+    for use_memstore in vec![true, false] {
+        let db = &random_db();
+
+        dispatch::<_, String>(db, Rpc::Open, OpenRequest { use_memstore })
+            .await
+            .unwrap();
+
+        async fn query_body(db: String, transaction_id: u32) {
+            let db = &db;
+            get(db, transaction_id, "b").await;
+            has(db, transaction_id, "b").await;
+            get(db, transaction_id, "a").await;
+            let (receive, _cb, _got) = new_test_scan_receiver();
+            scan(db, transaction_id, "c", None, None, false, None, receive).await;
+        };
+
+        async fn test_sub<F>(
+            db: &str,
+            query_body: impl FnOnce(String, u32) -> F,
+            expected_keys: Vec<&str>,
+            expected_scans: Vec<ScanOptions>,
+        ) where
+            F: futures::Future,
+        {
+            let OpenTransactionResponse { transaction_id } =
+                open_transaction(db, None, None, None, true).await;
+
+            query_body(db.to_string(), transaction_id).await;
+
+            let CloseTransactionResponse { keys, scans } = close(db, transaction_id).await;
+            assert_eq!(
+                keys,
+                expected_keys
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect::<Vec<String>>()
+            );
+            // assert_eq!(indexes, Vec::<String>::new());
+
+            assert_eq!(expected_scans, scans);
+        }
+
+        test_sub(
+            db,
+            query_body,
+            vec!["a", "b"],
+            vec![ScanOptions {
+                index_name: None,
+                prefix: Some("c".to_string()),
+                start_key: None,
+                limit: None,
+                start_exclusive: Some(false),
+                start_secondary_key: None,
+            }],
+        )
+        .await;
+
+        {
+            let OpenTransactionResponse { transaction_id } =
+                open_transaction(db, "foo".to_string().into(), Some(json!([])), None, false).await;
+            put(db, transaction_id, "c", "c").await;
+            put(db, transaction_id, "c2", "c2").await;
+            put(db, transaction_id, "x", "x").await;
+            let resp = commit(db, transaction_id, true).await;
+            assert_eq!(resp.diffs, map! { "" => vec!["c", "c2", "x"] });
+        }
+
+        test_sub(
+            db,
+            query_body,
+            vec!["a", "b"],
+            vec![ScanOptions {
+                prefix: Some("c".to_string()),
+                start_secondary_key: None,
+                start_key: None,
+                start_exclusive: Some(false),
+                limit: None,
+                index_name: None,
+            }],
+        )
+        .await;
+
+        let transaction_id = open_index_transaction(db).await.transaction_id;
+        dispatch::<_, CreateIndexResponse>(
+            db,
+            Rpc::CreateIndex,
+            CreateIndexRequest {
+                transaction_id,
+                name: str!("index1"),
+                key_prefix: str!("b"),
+                json_pointer: str!("/s"),
+            },
+        )
+        .await
+        .unwrap();
+        commit(db, transaction_id, false).await;
+
+        async fn query_body_with_index(db: String, transaction_id: u32) {
+            let db = &db;
+            let (receive, _cb, _got) = new_test_scan_receiver();
+            scan(
+                db,
+                transaction_id,
+                "prefix",
+                "start_secondary_key".into(),
+                "start_key".into(),
+                false,
+                Some("index1"),
+                receive,
+            )
+            .await;
+        };
+
+        test_sub(
+            db,
+            query_body_with_index,
+            vec![],
+            vec![ScanOptions {
+                index_name: Some("index1".to_string()),
+                prefix: Some("prefix".to_string()),
+                start_key: Some("start_key".to_string()),
+                limit: None,
+                start_exclusive: Some(false),
+                start_secondary_key: Some("start_secondary_key".to_string()),
+            }],
+        )
+        .await;
+
+        assert_eq!(dispatch::<_, String>(db, Rpc::Close, "").await.unwrap(), "");
+    }
 }

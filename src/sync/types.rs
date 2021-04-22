@@ -1,8 +1,7 @@
-use serde::{Deserialize, Serialize};
-
-use crate::{dag, db};
-
 use super::{patch, PullError, PushError};
+use crate::{dag, db, prolly};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(test, derive(Clone, Debug, PartialEq))]
@@ -30,6 +29,8 @@ pub struct MaybeEndTryPullResponse {
     pub replay_mutations: Vec<ReplayMutation>,
     #[serde(rename = "syncHead")]
     pub sync_head: String,
+
+    pub diffs: BTreeMap<String, Vec<String>>,
 }
 
 // ReplayMutation is returned in the MaybeEndPushResponse, not be confused with
@@ -118,6 +119,8 @@ pub enum MaybeEndTryPullError {
     GetSyncHeadError(dag::Error),
     InternalArgsUtf8Error(std::string::FromUtf8Error),
     InternalProgrammerError(String),
+    InvalidUtf8(std::string::FromUtf8Error),
+    LoadHeadError(prolly::LoadError),
     LoadSyncHeadError(db::FromHashError),
     MissingMainHead,
     MissingSyncHead,
@@ -125,6 +128,7 @@ pub enum MaybeEndTryPullError {
     OpenWriteTxWriteError(dag::Error),
     OverlappingSyncsJSLogInfo, // "JSLogInfo" is a signal to bindings to not log this alarmingly.
     PendingError(db::WalkChainError),
+    ReadCommitError(db::ReadCommitError),
     SyncSnapshotWithNoBasis,
     WriteDefaultHeadError(dag::Error),
     WriteSyncHeadError(dag::Error),

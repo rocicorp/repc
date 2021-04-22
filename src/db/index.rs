@@ -34,7 +34,6 @@ impl Index {
         Ok(MapWriteGuard { guard })
     }
 
-    #[allow(dead_code)]
     pub async fn get_map(&self, read: &dag::Read<'_>) -> Result<MapReadGuard<'_>, GetMapError> {
         self.get_map_mut(read).await?;
         Ok(MapReadGuard {

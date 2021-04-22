@@ -1,8 +1,13 @@
-use super::{commit, index, read, scan, ReadCommitError, Whence};
+use super::{
+    commit,
+    index::{self, GetMapError},
+    read, scan, ReadCommitError, Whence,
+};
 use crate::dag;
 use crate::prolly;
 use crate::util::rlog;
-use std::collections::hash_map::HashMap;
+use std::collections::HashMap;
+use std::{collections::BTreeMap, string::FromUtf8Error};
 use str_macro::str;
 
 #[allow(dead_code)]
@@ -55,7 +60,8 @@ pub async fn init_db(dag_write: dag::Write<'_>, head_name: &str) -> Result<Strin
         }),
         indexes: HashMap::new(),
     };
-    Ok(w.commit(head_name).await.map_err(CommitError)?)
+    let (hash, _) = w.commit(head_name, false).await.map_err(CommitError)?;
+    Ok(hash)
 }
 
 #[allow(dead_code)]
@@ -121,7 +127,14 @@ impl<'a> Write<'a> {
     }
 
     pub fn as_read(&'a self) -> super::Read<'a> {
-        super::Read::new(self.dag_write.read(), &self.map, &self.indexes)
+        // A Write transaction can never have a subscription.
+        let subscription = None;
+        super::Read::new(
+            self.dag_write.read(),
+            &self.map,
+            &self.indexes,
+            subscription,
+        )
     }
 
     pub fn is_rebase(&self) -> bool {
@@ -338,15 +351,39 @@ impl<'a> Write<'a> {
 
     // Return value is the hash of the new commit.
     #[allow(clippy::too_many_arguments)]
-    pub async fn commit(mut self, head_name: &str) -> Result<String, CommitError> {
+    pub async fn commit(
+        mut self,
+        head_name: &str,
+        generate_diffs: bool,
+    ) -> Result<(String, BTreeMap<String, Vec<String>>), CommitError> {
         use CommitError::*;
+        let value_diff = if generate_diffs {
+            self.map.pending_diff().map_err(InvalidUtf8)?
+        } else {
+            Vec::new()
+        };
         let value_hash = self
             .map
             .flush(&mut self.dag_write)
             .await
             .map_err(FlushError)?;
         let mut index_metas = Vec::new();
-        for (_, index) in self.indexes.into_iter() {
+        let mut diffs: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        if !value_diff.is_empty() {
+            diffs.insert(str!(""), value_diff);
+        }
+        for (name, index) in self.indexes.into_iter() {
+            {
+                let guard = index
+                    .get_map(&self.dag_write.read())
+                    .await
+                    .map_err(GetMapError)?;
+                let map = guard.get_map();
+                let diff = map.pending_diff().map_err(InvalidUtf8)?;
+                if !diff.is_empty() {
+                    diffs.insert(name, diff);
+                }
+            }
             let value_hash = index
                 .flush(&mut self.dag_write)
                 .await
@@ -424,7 +461,7 @@ impl<'a> Write<'a> {
 
         self.dag_write.commit().await.map_err(DagCommitError)?;
 
-        Ok(commit.chunk().hash().to_string())
+        Ok((commit.chunk().hash().to_string(), diffs))
     }
 }
 
@@ -448,9 +485,11 @@ pub enum CommitError {
     DagSetHeadError(dag::Error),
     DagCommitError(dag::Error),
     FlushError(prolly::FlushError),
+    GetMapError(GetMapError),
     IndexChangeMustNotChangeMutationID,
     IndexChangeMustNotChangeValueHash,
     IndexFlushError(index::IndexFlushError),
+    InvalidUtf8(FromUtf8Error),
     SerializeArgsError(serde_json::error::Error),
     SerializeCookieError(serde_json::error::Error),
 }
@@ -516,9 +555,9 @@ mod tests {
             .unwrap();
         // Assert we can read the same value from within this transaction.
         let r = w.as_read();
-        let val = r.get(b"foo");
+        let val = r.get(b"foo").await;
         assert_eq!(Some(&(b"bar"[..])), val);
-        w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
+        w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
 
         // As well as after it has committed.
         let w = Write::new_local(
@@ -531,7 +570,7 @@ mod tests {
         .await
         .unwrap();
         let r = w.as_read();
-        let val = r.get(b"foo");
+        let val = r.get(b"foo").await;
         assert_eq!(Some(&(b"bar"[..])), val);
         drop(w);
 
@@ -550,9 +589,9 @@ mod tests {
             .unwrap();
         // Assert it is gone while still within this transaction.
         let r = w.as_read();
-        let val = r.get(b"foo");
+        let val = r.get(b"foo").await;
         assert!(val.is_none());
-        w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
+        w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
 
         // As well as after it has committed.
         let w = Write::new_local(
@@ -565,7 +604,7 @@ mod tests {
         .await
         .unwrap();
         let r = w.as_read();
-        let val = r.get(b"foo");
+        let val = r.get(b"foo").await;
         assert!(val.is_none());
     }
 
@@ -652,7 +691,7 @@ mod tests {
             Meta::IndexChange(ic) => ic.last_mutation_id = 1000,
             _ => assert!(false),
         }
-        let got_err = w.commit("some head").await.unwrap_err();
+        let got_err = w.commit("some head", false).await.unwrap_err();
         // Compare as a string because we can't make derive PartialEq for CommitError
         // (it wraps serde errors that are not PartialEq).
         assert_eq!(
@@ -668,7 +707,7 @@ mod tests {
         let m = &mut w.map;
         m.put(vec![0x01, 0x02], vec![0x03]);
         drop(m);
-        let got_err = w.commit("some head").await.unwrap_err();
+        let got_err = w.commit("some head", false).await.unwrap_err();
         assert_eq!(
             "IndexChangeMustNotChangeValueHash",
             format!("{:?}", got_err)
@@ -697,7 +736,7 @@ mod tests {
         w.put(lc.clone(), b"foo".to_vec(), b"\"bar\"".to_vec())
             .await
             .unwrap();
-        w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
+        w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
         let mut w = Write::new_index_change(
             Whence::Head(str!(db::DEFAULT_HEAD_NAME)),
             ds.write(LogContext::new()).await.unwrap(),
@@ -707,7 +746,7 @@ mod tests {
         w.create_index(rlog::LogContext::new(), str!("idx"), b"", "")
             .await
             .unwrap();
-        w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
+        w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
 
         w = Write::new_local(
             Whence::Head(str!(db::DEFAULT_HEAD_NAME)),
@@ -744,7 +783,7 @@ mod tests {
                 .count(),
             0
         );
-        w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
+        w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
 
         let owned_read = ds.read(LogContext::new()).await.unwrap();
         let (_, c, m) = read::read_commit(
@@ -800,7 +839,7 @@ mod tests {
                     .await
                     .unwrap();
                 }
-                w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
+                w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
             }
 
             let mut w = Write::new_index_change(
@@ -813,7 +852,7 @@ mod tests {
             w.create_index(rlog::LogContext::new(), index_name.to_string(), b"", "/s")
                 .await
                 .unwrap();
-            w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
+            w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
 
             if !write_before_indexing {
                 let mut w = Write::new_local(
@@ -837,7 +876,7 @@ mod tests {
                     .await
                     .unwrap();
                 }
-                w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
+                w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
             }
 
             let owned_read = ds.read(LogContext::new()).await.unwrap();
@@ -879,7 +918,7 @@ mod tests {
             .await
             .unwrap();
             w.drop_index(index_name).await.unwrap();
-            w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
+            w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
             let owned_read = ds.read(LogContext::new()).await.unwrap();
             let (_, c, _) = read::read_commit(
                 Whence::Head(str!(db::DEFAULT_HEAD_NAME)),
