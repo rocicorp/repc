@@ -127,14 +127,7 @@ impl<'a> Write<'a> {
     }
 
     pub fn as_read(&'a self) -> super::Read<'a> {
-        // A Write transaction can never have a subscription.
-        let subscription = None;
-        super::Read::new(
-            self.dag_write.read(),
-            &self.map,
-            &self.indexes,
-            subscription,
-        )
+        super::Read::new(self.dag_write.read(), &self.map, &self.indexes)
     }
 
     pub fn is_rebase(&self) -> bool {
@@ -555,7 +548,7 @@ mod tests {
             .unwrap();
         // Assert we can read the same value from within this transaction.
         let r = w.as_read();
-        let val = r.get(b"foo").await;
+        let val = r.get(b"foo");
         assert_eq!(Some(&(b"bar"[..])), val);
         w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
 
@@ -570,7 +563,7 @@ mod tests {
         .await
         .unwrap();
         let r = w.as_read();
-        let val = r.get(b"foo").await;
+        let val = r.get(b"foo");
         assert_eq!(Some(&(b"bar"[..])), val);
         drop(w);
 
@@ -589,7 +582,7 @@ mod tests {
             .unwrap();
         // Assert it is gone while still within this transaction.
         let r = w.as_read();
-        let val = r.get(b"foo").await;
+        let val = r.get(b"foo");
         assert!(val.is_none());
         w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
 
@@ -604,7 +597,7 @@ mod tests {
         .await
         .unwrap();
         let r = w.as_read();
-        let val = r.get(b"foo").await;
+        let val = r.get(b"foo");
         assert!(val.is_none());
     }
 

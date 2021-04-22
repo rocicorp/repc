@@ -1,6 +1,6 @@
 #![allow(clippy::redundant_pattern_matching)] // For derive(Deserialize).
 
-use crate::db::{self, ScanOptions};
+use crate::db;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -28,8 +28,6 @@ pub struct OpenTransactionRequest {
     #[serde(rename = "rebaseOpts")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rebase_opts: Option<RebaseOpts>,
-    #[serde(default, rename = "isSubscription")]
-    pub is_subscription: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -69,10 +67,7 @@ pub struct CloseTransactionRequest {
 
 #[derive(Deserialize, Serialize)]
 #[cfg_attr(test, derive(Debug))]
-pub struct CloseTransactionResponse {
-    pub keys: Vec<String>,
-    pub scans: Vec<ScanOptions>,
-}
+pub struct CloseTransactionResponse {}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct TransactionRequest {

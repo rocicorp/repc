@@ -246,13 +246,13 @@ mod tests {
                 for (k, v) in map {
                     assert_eq!(
                         Some(v.as_bytes()),
-                        db_write.as_read().get(k.as_bytes()).await,
+                        db_write.as_read().get(k.as_bytes()),
                         "{}",
                         c.name
                     );
                 }
                 if map.len() == 0 {
-                    assert!(!db_write.as_read().has("key".as_bytes()).await);
+                    assert!(!db_write.as_read().has("key".as_bytes()));
                 }
             }
         }

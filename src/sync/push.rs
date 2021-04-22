@@ -546,7 +546,6 @@ mod tests {
                 let read = db::OwnedRead::from_whence(
                     db::Whence::Head(DEFAULT_HEAD_NAME.to_string()),
                     dag_read,
-                    None,
                 )
                 .await
                 .unwrap();

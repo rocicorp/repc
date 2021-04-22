@@ -1,20 +1,19 @@
 use super::dispatch::Request;
 use super::types::*;
+use crate::dag;
 use crate::db;
 use crate::fetch;
 use crate::sync;
 use crate::util::rlog;
 use crate::util::rlog::LogContext;
 use crate::util::to_debug;
-use crate::{dag, db::SubscriptionInnerError};
 use async_std::stream::StreamExt;
 use async_std::sync::{Receiver, RecvError, RwLock};
-use db::{ScanOptions, SubscriptionInner};
 use futures::stream::futures_unordered::FuturesUnordered;
 use js_sys::{Function, Reflect, Uint8Array};
+use std::collections::HashMap;
+use std::mem;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::{collections::HashMap, sync::Arc};
-use std::{mem, string::FromUtf8Error};
 use wasm_bindgen::{JsCast, JsValue};
 
 lazy_static! {
@@ -315,23 +314,12 @@ async fn do_open_transaction<'a, 'b>(
 ) -> Result<OpenTransactionResponse, OpenTransactionError> {
     use OpenTransactionError::*;
 
-    // We create a Subscription object to keep track of what keys and scans were
-    // read in this subscribe-query transaction.
-    let subscription = if req.is_subscription {
-        let inner = SubscriptionInner::new();
-        let subscription = Arc::new(RwLock::new(inner));
-        Some(subscription)
-    } else {
-        None
-    };
-
     let txn = match req.name {
         Some(mutator_name) => {
             let OpenTransactionRequest {
                 name: _,
                 args: mutator_args,
                 rebase_opts,
-                is_subscription: _,
             } = req;
             let mutator_args = mutator_args.ok_or(ArgsRequired)?;
 
@@ -367,7 +355,6 @@ async fn do_open_transaction<'a, 'b>(
             let read = db::OwnedRead::from_whence(
                 db::Whence::Head(db::DEFAULT_HEAD_NAME.to_string()),
                 dag_read,
-                subscription.clone(),
             )
             .await
             .map_err(DBReadError)?;
@@ -380,15 +367,6 @@ async fn do_open_transaction<'a, 'b>(
     Ok(OpenTransactionResponse {
         transaction_id: txn_id,
     })
-}
-
-impl From<SubscriptionInnerError> for OpenTransactionError {
-    fn from(e: SubscriptionInnerError) -> Self {
-        use OpenTransactionError::*;
-        match e {
-            SubscriptionInnerError::InvalidUtf8(e) => InvalidUtf8(e),
-        }
-    }
 }
 
 async fn do_open_index_transaction<'a, 'b>(
@@ -514,23 +492,12 @@ async fn do_close_transaction<'a, 'b>(
 ) -> Result<CloseTransactionResponse, CloseTransactionError> {
     use CloseTransactionError::*;
     let txn_id = request.transaction_id;
-    let txn = ctx
-        .txns
+    ctx.txns
         .write()
         .await
         .remove(&txn_id)
         .ok_or(UnknownTransaction)?;
-    let mut keys = vec![];
-    let mut scans: Vec<ScanOptions> = vec![];
-    if let Transaction::Read(r) = txn.into_inner() {
-        if let Some(s) = r.subscription {
-            let s = s.clone();
-            let s = s.read().await;
-            keys = s.touched_keys()?;
-            scans = s.touched_scans();
-        }
-    }
-    Ok(CloseTransactionResponse { keys, scans })
+    Ok(CloseTransactionResponse {})
 }
 
 async fn do_get_root<'a, 'b>(
@@ -551,7 +518,7 @@ async fn do_get_root<'a, 'b>(
 
 async fn do_has(txn: db::Read<'_>, req: HasRequest) -> Result<HasResponse, ()> {
     Ok(HasResponse {
-        has: txn.has(req.key.as_bytes()).await,
+        has: txn.has(req.key.as_bytes()),
     })
 }
 
@@ -614,7 +581,6 @@ async fn do_get(read: db::Read<'_>, req: GetRequest) -> Result<GetResponse, Stri
 
     let got = read
         .get(req.key.as_bytes())
-        .await
         .map(|buf| String::from_utf8(buf.to_vec()));
     if let Some(Err(e)) = got {
         return Err(to_debug(e));
@@ -684,7 +650,7 @@ async fn do_del(
     write: &mut db::Write<'_>,
     req: DelRequest,
 ) -> Result<DelResponse, db::DelError> {
-    let had = write.as_read().has(req.key.as_bytes()).await;
+    let had = write.as_read().has(req.key.as_bytes());
     write.del(lc, req.key.as_bytes().to_vec()).await?;
     Ok(DelResponse { had })
 }
@@ -778,7 +744,6 @@ enum OpenTransactionError {
     InconsistentMutationId(String),
     InconsistentMutator(String),
     InternalProgrammerError(String),
-    InvalidUtf8(std::string::FromUtf8Error),
     NoSuchBasis(db::ReadCommitError),
     NoSuchOriginal(db::ReadCommitError),
     WrongSyncHeadJSLogInfo(String), // "JSLogInfo" is a signal to bindings to not log this alarmingly.
@@ -793,17 +758,7 @@ enum CommitTransactionError {
 
 #[derive(Debug)]
 enum CloseTransactionError {
-    InvalidUtf8(FromUtf8Error),
     UnknownTransaction,
-}
-
-impl From<SubscriptionInnerError> for CloseTransactionError {
-    fn from(e: SubscriptionInnerError) -> Self {
-        use CloseTransactionError::*;
-        match e {
-            SubscriptionInnerError::InvalidUtf8(e) => InvalidUtf8(e),
-        }
-    }
 }
 
 // Note: dispatch is mostly tested in tests/wasm.rs.
@@ -852,7 +807,6 @@ mod tests {
                         basis: original_hash.clone(), // <-- not the sync head
                         original_hash: original_hash.clone(),
                     }),
-                    is_subscription: false,
                 },
             )
             .await;
@@ -868,7 +822,6 @@ mod tests {
                         basis: str!(sync_chain[0].chunk().hash()),
                         original_hash: original_hash.clone(),
                     }),
-                    is_subscription: false,
                 },
             )
             .await;
@@ -898,7 +851,6 @@ mod tests {
                         basis: str!(sync_chain[0].chunk().hash()),
                         original_hash: new_local_hash, // <-- has different mutation id
                     }),
-                    is_subscription: false,
                 },
             )
             .await;
@@ -915,7 +867,6 @@ mod tests {
                         basis: str!(sync_chain[0].chunk().hash()),
                         original_hash: original_hash.clone(),
                     }),
-                    is_subscription: false,
                 },
             )
             .await

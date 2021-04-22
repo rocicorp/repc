@@ -983,7 +983,6 @@ mod tests {
                 let read = db::OwnedRead::from_whence(
                     db::Whence::Head(DEFAULT_HEAD_NAME.to_string()),
                     dag_read,
-                    None,
                 )
                 .await
                 .unwrap();
@@ -1099,7 +1098,6 @@ mod tests {
                     let read = db::OwnedRead::from_whence(
                         db::Whence::Head(SYNC_HEAD_NAME.to_string()),
                         dag_read,
-                        None,
                     )
                     .await
                     .unwrap();
