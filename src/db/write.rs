@@ -60,8 +60,7 @@ pub async fn init_db(dag_write: dag::Write<'_>, head_name: &str) -> Result<Strin
         }),
         indexes: HashMap::new(),
     };
-    let (hash, _) = w.commit(head_name, false).await.map_err(CommitError)?;
-    Ok(hash)
+    w.commit(head_name).await.map_err(CommitError)
 }
 
 #[allow(dead_code)]
@@ -343,8 +342,14 @@ impl<'a> Write<'a> {
     }
 
     // Return value is the hash of the new commit.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn commit(
+    pub async fn commit(self, head_name: &str) -> Result<String, CommitError> {
+        self.commit_with_diff(head_name, false)
+            .await
+            .map(|(hash, _)| hash)
+    }
+
+    // Return value is the hash of the new commit and the diff compared to before the commit.
+    pub async fn commit_with_diff(
         mut self,
         head_name: &str,
         generate_diffs: bool,
@@ -550,7 +555,7 @@ mod tests {
         let r = w.as_read();
         let val = r.get(b"foo");
         assert_eq!(Some(&(b"bar"[..])), val);
-        w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
+        w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
 
         // As well as after it has committed.
         let w = Write::new_local(
@@ -584,7 +589,7 @@ mod tests {
         let r = w.as_read();
         let val = r.get(b"foo");
         assert!(val.is_none());
-        w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
+        w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
 
         // As well as after it has committed.
         let w = Write::new_local(
@@ -684,7 +689,7 @@ mod tests {
             Meta::IndexChange(ic) => ic.last_mutation_id = 1000,
             _ => assert!(false),
         }
-        let got_err = w.commit("some head", false).await.unwrap_err();
+        let got_err = w.commit("some head").await.unwrap_err();
         // Compare as a string because we can't make derive PartialEq for CommitError
         // (it wraps serde errors that are not PartialEq).
         assert_eq!(
@@ -700,7 +705,7 @@ mod tests {
         let m = &mut w.map;
         m.put(vec![0x01, 0x02], vec![0x03]);
         drop(m);
-        let got_err = w.commit("some head", false).await.unwrap_err();
+        let got_err = w.commit("some head").await.unwrap_err();
         assert_eq!(
             "IndexChangeMustNotChangeValueHash",
             format!("{:?}", got_err)
@@ -729,7 +734,7 @@ mod tests {
         w.put(lc.clone(), b"foo".to_vec(), b"\"bar\"".to_vec())
             .await
             .unwrap();
-        w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
+        w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
         let mut w = Write::new_index_change(
             Whence::Head(str!(db::DEFAULT_HEAD_NAME)),
             ds.write(LogContext::new()).await.unwrap(),
@@ -739,7 +744,7 @@ mod tests {
         w.create_index(rlog::LogContext::new(), str!("idx"), b"", "")
             .await
             .unwrap();
-        w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
+        w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
 
         w = Write::new_local(
             Whence::Head(str!(db::DEFAULT_HEAD_NAME)),
@@ -776,7 +781,7 @@ mod tests {
                 .count(),
             0
         );
-        w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
+        w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
 
         let owned_read = ds.read(LogContext::new()).await.unwrap();
         let (_, c, m) = read::read_commit(
@@ -832,7 +837,7 @@ mod tests {
                     .await
                     .unwrap();
                 }
-                w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
+                w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
             }
 
             let mut w = Write::new_index_change(
@@ -845,7 +850,7 @@ mod tests {
             w.create_index(rlog::LogContext::new(), index_name.to_string(), b"", "/s")
                 .await
                 .unwrap();
-            w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
+            w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
 
             if !write_before_indexing {
                 let mut w = Write::new_local(
@@ -869,7 +874,7 @@ mod tests {
                     .await
                     .unwrap();
                 }
-                w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
+                w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
             }
 
             let owned_read = ds.read(LogContext::new()).await.unwrap();
@@ -911,7 +916,7 @@ mod tests {
             .await
             .unwrap();
             w.drop_index(index_name).await.unwrap();
-            w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
+            w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
             let owned_read = ds.read(LogContext::new()).await.unwrap();
             let (_, c, _) = read::read_commit(
                 Whence::Head(str!(db::DEFAULT_HEAD_NAME)),

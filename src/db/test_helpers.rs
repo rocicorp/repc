@@ -49,7 +49,7 @@ pub async fn add_local<'a>(chain: &'a mut Chain, store: &dag::Store) -> &'a mut 
     )
     .await
     .unwrap();
-    w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
+    w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
     let (_, commit, _) = read_commit(
         Whence::Head(str!(db::DEFAULT_HEAD_NAME)),
         &store.read(LogContext::new()).await.unwrap().read(),
@@ -72,7 +72,7 @@ pub async fn add_index_change<'a>(chain: &'a mut Chain, store: &dag::Store) -> &
     w.create_index(LogContext::new(), i.to_string(), "local".as_bytes(), "")
         .await
         .unwrap();
-    w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
+    w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
     let (_, commit, _) = read_commit(
         Whence::Head(str!(db::DEFAULT_HEAD_NAME)),
         &store.read(LogContext::new()).await.unwrap().read(),
@@ -116,7 +116,7 @@ pub async fn add_snapshot<'a>(
             i += 2;
         }
     }
-    w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
+    w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
     let (_, commit, _) = read_commit(
         Whence::Head(str!(db::DEFAULT_HEAD_NAME)),
         &store.read(LogContext::new()).await.unwrap().read(),

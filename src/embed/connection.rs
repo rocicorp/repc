@@ -480,7 +480,7 @@ async fn do_commit<'a, 'b>(
         db::DEFAULT_HEAD_NAME
     };
     let (hash, diffs) = txn
-        .commit(head_name, req.generate_diffs)
+        .commit_with_diff(head_name, req.generate_diffs)
         .await
         .map_err(CommitError)?;
     Ok(CommitTransactionResponse { hash, diffs })

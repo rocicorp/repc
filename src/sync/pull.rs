@@ -180,10 +180,7 @@ pub async fn begin_pull(
         .await
         .map_err(PatchFailed)?;
 
-    let (commit_hash, _) = db_write
-        .commit(SYNC_HEAD_NAME, false)
-        .await
-        .map_err(CommitError)?;
+    let commit_hash = db_write.commit(SYNC_HEAD_NAME).await.map_err(CommitError)?;
 
     Ok(BeginTryPullResponse {
         http_request_info: HttpRequestInfo {
@@ -1281,7 +1278,7 @@ mod tests {
             )
             .await
             .unwrap();
-            let (mut basis_hash, _) = w.commit(SYNC_HEAD_NAME, false).await.unwrap();
+            let mut basis_hash = w.commit(SYNC_HEAD_NAME).await.unwrap();
 
             if c.intervening_sync {
                 add_snapshot(&mut chain, &store, None).await;
@@ -1306,7 +1303,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
-                basis_hash = w.commit(SYNC_HEAD_NAME, false).await.unwrap().0;
+                basis_hash = w.commit(SYNC_HEAD_NAME).await.unwrap();
             }
             let sync_head = basis_hash;
 

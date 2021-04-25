@@ -179,7 +179,7 @@ mod tests {
         )
         .await
         .unwrap();
-        w.commit(db::DEFAULT_HEAD_NAME, false).await.unwrap();
+        w.commit(db::DEFAULT_HEAD_NAME).await.unwrap();
 
         let dr = ds.read(LogContext::new()).await.unwrap();
         let r = OwnedRead::from_whence(Whence::Head(str!(db::DEFAULT_HEAD_NAME)), dr)
