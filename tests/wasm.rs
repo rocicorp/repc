@@ -185,14 +185,14 @@ async fn del(db_name: &str, txn_id: u32, key: &str) -> bool {
 async fn commit(
     db_name: &str,
     transaction_id: u32,
-    generate_diffs: bool,
+    generate_changed_keys: bool,
 ) -> CommitTransactionResponse {
     dispatch(
         db_name,
         Rpc::CommitTransaction,
         &CommitTransactionRequest {
             transaction_id,
-            generate_diffs,
+            generate_changed_keys,
         },
     )
     .await

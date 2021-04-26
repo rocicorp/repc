@@ -479,11 +479,11 @@ async fn do_commit<'a, 'b>(
     } else {
         db::DEFAULT_HEAD_NAME
     };
-    let (hash, diffs) = txn
-        .commit_with_diff(head_name, req.generate_diffs)
+    let (hash, changed_keys) = txn
+        .commit_with_changed_keys(head_name, req.generate_changed_keys)
         .await
         .map_err(CommitError)?;
-    Ok(CommitTransactionResponse { hash, diffs })
+    Ok(CommitTransactionResponse { hash, changed_keys })
 }
 
 async fn do_close_transaction<'a, 'b>(
@@ -875,7 +875,7 @@ mod tests {
                 Context::new(&store, &txns, str!("client_id"), LogContext::new()),
                 CommitTransactionRequest {
                     transaction_id: otr.transaction_id,
-                    generate_diffs: false,
+                    generate_changed_keys: false,
                 },
             )
             .await

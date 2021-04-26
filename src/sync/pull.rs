@@ -12,9 +12,9 @@ use crate::prolly;
 use crate::util::rlog;
 use crate::util::rlog::LogContext;
 use async_trait::async_trait;
+use db::{ChangedKeysMap, IndexRecord};
 use log::log_enabled;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::default::Default;
 use std::fmt::Debug;
@@ -81,7 +81,7 @@ pub async fn begin_pull(
         pull_timer.elapsed_ms()
     );
 
-    // If Puller did not get a pull response we still want to return the  HTTP
+    // If Puller did not get a pull response we still want to return the HTTP
     // request info to the JS SDK.
     if pull_resp.is_none() {
         return Ok(BeginTryPullResponse {
@@ -228,10 +228,6 @@ pub async fn maybe_end_try_pull(
         .await
         .map_err(NoBaseSnapshot)?;
 
-    let old_main_head_map = prolly::Map::load(main_snapshot.value_hash(), &dag_read)
-        .await
-        .map_err(LoadHeadError)?;
-
     let meta = sync_snapshot.meta();
     let sync_snapshot_basis = meta.basis_hash().ok_or(SyncSnapshotWithNoBasis)?;
     if sync_snapshot_basis != main_snapshot.chunk().hash() {
@@ -277,17 +273,35 @@ pub async fn maybe_end_try_pull(
         return Ok(MaybeEndTryPullResponse {
             sync_head: sync_head_hash,
             replay_mutations,
-            diffs: BTreeMap::new(),
+            changed_keys: ChangedKeysMap::new(),
         });
     }
 
     // TODO check invariants
 
+    let old_main_head_map = prolly::Map::load(main_snapshot.value_hash(), &dag_read)
+        .await
+        .map_err(LoadHeadError)?;
     let new_main_head_map = prolly::Map::load(sync_head.value_hash(), &dag_write.read())
         .await
         .map_err(LoadHeadError)?;
 
-    let diff = prolly::Map::diff(&old_main_head_map, &new_main_head_map);
+    let value_changed_keys =
+        prolly::Map::changed_keys(&old_main_head_map, &new_main_head_map).map_err(InvalidUtf8)?;
+
+    fn compare_by_name(a: &IndexRecord, b: &IndexRecord) -> std::cmp::Ordering {
+        a.definition.name.cmp(&b.definition.name)
+    }
+
+    let mut old_indexes = main_snapshot.indexes();
+    let mut new_indexes = sync_head.indexes();
+    old_indexes.sort_by(compare_by_name);
+    new_indexes.sort_by(compare_by_name);
+    // TODO(arv): Implement
+
+    // old_indexes.first().unwrap()
+
+    // old_indexes.iter()
 
     // No mutations to replay so set the main head to the sync head and sync complete!
     dag_write
@@ -316,16 +330,15 @@ pub async fn maybe_end_try_pull(
             main_snapshot.value_hash()
         );
     }
-    let main_diff = diff.map_err(InvalidUtf8)?;
-    let mut diffs = BTreeMap::new();
-    if !main_diff.is_empty() {
-        diffs.insert(str!(""), main_diff);
+    let mut changed_keys = ChangedKeysMap::new();
+    if !value_changed_keys.is_empty() {
+        changed_keys.insert(str!(""), value_changed_keys);
     }
 
     Ok(MaybeEndTryPullResponse {
         sync_head: sync_head_hash.to_string(),
         replay_mutations: Vec::new(),
-        diffs,
+        changed_keys,
     })
 }
 

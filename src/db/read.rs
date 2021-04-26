@@ -1,11 +1,9 @@
-use super::{
-    commit::{Commit, FromHashError},
-    index,
-};
+use super::commit::{Commit, FromHashError};
+use super::index;
 use crate::dag;
 use crate::prolly;
 use std::collections::hash_map::HashMap;
-use std::{convert::TryInto, string::FromUtf8Error};
+use std::convert::TryInto;
 
 #[derive(Debug)]
 pub enum Whence {
@@ -138,7 +136,6 @@ impl<'a> Read<'a> {
 #[derive(Debug)]
 pub enum ScanError {
     GetMapError(index::GetMapError),
-    InvalidUtf8(FromUtf8Error),
     ScanOptionsError(super::scan::ScanOptionsError),
     UnknownIndexName(String),
 }

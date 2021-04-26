@@ -1,7 +1,10 @@
 use super::{patch, PullError, PushError};
-use crate::{dag, db, prolly};
+use crate::{
+    dag,
+    db::{self, ChangedKeysMap},
+    prolly,
+};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(test, derive(Clone, Debug, PartialEq))]
@@ -29,8 +32,8 @@ pub struct MaybeEndTryPullResponse {
     pub replay_mutations: Vec<ReplayMutation>,
     #[serde(rename = "syncHead")]
     pub sync_head: String,
-
-    pub diffs: BTreeMap<String, Vec<String>>,
+    #[serde(rename = "changedKeys")]
+    pub changed_keys: ChangedKeysMap,
 }
 
 // ReplayMutation is returned in the MaybeEndPushResponse, not be confused with

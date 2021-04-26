@@ -127,7 +127,7 @@ impl Map {
     }
 
     // Returns the diff between the pending entries and the already flushed entries.
-    pub fn pending_diff(&self) -> Result<Vec<String>, FromUtf8Error> {
+    pub fn pending_changed_keys(&self) -> Result<Vec<String>, FromUtf8Error> {
         let mut keys = Vec::with_capacity(self.pending.len());
         for (key, pending_val) in self.pending.iter() {
             match pending_val {
@@ -152,7 +152,7 @@ impl Map {
     }
 
     /// Returns the keys that are different between two maps.
-    pub fn diff<'a>(a: &'a Self, b: &'a Self) -> Result<Vec<String>, FromUtf8Error> {
+    pub fn changed_keys<'a>(a: &'a Self, b: &'a Self) -> Result<Vec<String>, FromUtf8Error> {
         let mut it_a = a.iter();
         let mut it_b = b.iter();
         let mut keys = vec![];
@@ -617,7 +617,7 @@ mod tests {
         .await;
     }
 
-    macro_rules! map(
+    macro_rules! prolly_map(
         () => (
             Map {
                 base: None,
@@ -639,50 +639,58 @@ mod tests {
     );
 
     #[test]
-    fn diff() {
-        fn test(a: &Map, b: &Map, mut expected: Vec<&str>) {
+    fn changed_keys() {
+        fn test(old: &Map, new: &Map, mut expected: Vec<&str>) {
             expected.sort();
-            let actual = Map::diff(a, b).unwrap();
+            let actual = Map::changed_keys(old, new).unwrap();
             assert_eq!(
                 expected.iter().map(|e| e.to_string()).collect::<Vec<_>>(),
                 actual
             );
-            let actual = Map::diff(b, a).unwrap();
+            let actual = Map::changed_keys(new, old).unwrap();
             assert_eq!(
                 expected.iter().map(|e| e.to_string()).collect::<Vec<_>>(),
                 actual
             );
         }
 
-        test(&map! {}, &map! {}, vec![]);
-        test(&map! {"a" => "b"}, &map! {"a" => "b"}, vec![]);
+        test(&prolly_map! {}, &prolly_map! {}, vec![]);
+        test(&prolly_map! {"a" => "b"}, &prolly_map! {"a" => "b"}, vec![]);
 
-        test(&map! {"a" => "a"}, &map! {"a" => "b"}, vec!["a"]);
-        test(&map! {"a" => "a"}, &map! {"b" => "b"}, vec!["a", "b"]);
         test(
-            &map! {"a" => "a", "b" => "b"},
-            &map! {"b" => "b", "c" => "c"},
-            vec!["a", "c"],
-        );
-        test(
-            &map! {"a" => "a", "b" => "b"},
-            &map! {"b" => "b"},
+            &prolly_map! {"a" => "a"},
+            &prolly_map! {"a" => "b"},
             vec!["a"],
         );
         test(
-            &map! {"b" => "b"},
-            &map! {"b" => "b", "c" => "c"},
+            &prolly_map! {"a" => "a"},
+            &prolly_map! {"b" => "b"},
+            vec!["a", "b"],
+        );
+        test(
+            &prolly_map! {"a" => "a", "b" => "b"},
+            &prolly_map! {"b" => "b", "c" => "c"},
+            vec!["a", "c"],
+        );
+        test(
+            &prolly_map! {"a" => "a", "b" => "b"},
+            &prolly_map! {"b" => "b"},
+            vec!["a"],
+        );
+        test(
+            &prolly_map! {"b" => "b"},
+            &prolly_map! {"b" => "b", "c" => "c"},
             vec!["c"],
         );
         test(
-            &map! {"a" => "a1", "b"=>"b1"},
-            &map! {"a" => "a2", "b" => "b2"},
+            &prolly_map! {"a" => "a1", "b"=>"b1"},
+            &prolly_map! {"a" => "a2", "b" => "b2"},
             vec!["a", "b"],
         );
     }
 
     #[test]
-    fn test_pending_diff() {
+    fn test_pending_changed_keys() {
         let mut base_map = BTreeMap::new();
         base_map.insert(b"a", b"a");
         base_map.insert(b"b", b"b");
@@ -696,20 +704,20 @@ mod tests {
         };
 
         map.put(b"c".to_vec(), b"c".to_vec());
-        assert_eq!(map.pending_diff().unwrap(), vec![str!("c")]);
+        assert_eq!(map.pending_changed_keys().unwrap(), vec![str!("c")]);
 
         // Set b to b again... should be a nop
         map.put(b"b".to_vec(), b"b".to_vec());
-        assert_eq!(map.pending_diff().unwrap(), vec![str!("c")]);
+        assert_eq!(map.pending_changed_keys().unwrap(), vec![str!("c")]);
 
         // Remove c from pending
         map.del(b"c".to_vec());
-        assert_eq!(map.pending_diff().unwrap(), Vec::<String>::new());
+        assert_eq!(map.pending_changed_keys().unwrap(), Vec::<String>::new());
 
         map.del(b"d".to_vec());
-        assert_eq!(map.pending_diff().unwrap(), Vec::<String>::new());
+        assert_eq!(map.pending_changed_keys().unwrap(), Vec::<String>::new());
 
         map.put(b"b".to_vec(), b"2".to_vec());
-        assert_eq!(map.pending_diff().unwrap(), vec![str!("b")]);
+        assert_eq!(map.pending_changed_keys().unwrap(), vec![str!("b")]);
     }
 }

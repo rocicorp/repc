@@ -1,8 +1,7 @@
 #![allow(clippy::redundant_pattern_matching)] // For derive(Deserialize).
 
-use crate::db;
+use crate::db::{self, ChangedKeysMap};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct OpenRequest {
@@ -47,8 +46,8 @@ pub struct OpenTransactionResponse {
 pub struct CommitTransactionRequest {
     #[serde(rename = "transactionId")]
     pub transaction_id: u32,
-    #[serde(rename = "generateDiffs")]
-    pub generate_diffs: bool,
+    #[serde(rename = "generateChangedKeys")]
+    pub generate_changed_keys: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -56,7 +55,8 @@ pub struct CommitTransactionResponse {
     // Note: the field is named "ref" in go but "ref" is a reserved word in rust.
     #[serde(rename = "ref")]
     pub hash: String,
-    pub diffs: BTreeMap<String, Vec<String>>,
+    #[serde(rename = "changedKeys")]
+    pub changed_keys: ChangedKeysMap,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
