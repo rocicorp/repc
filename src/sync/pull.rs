@@ -4,20 +4,23 @@ use super::patch;
 use super::types::*;
 use super::SYNC_HEAD_NAME;
 use crate::dag;
-use crate::db;
 use crate::db::{Commit, MetaTyped, Whence, DEFAULT_HEAD_NAME};
 use crate::fetch;
 use crate::fetch::errors::FetchError;
 use crate::prolly;
 use crate::util::rlog;
 use crate::util::rlog::LogContext;
+use crate::{
+    db::{self, index::GetMapError},
+    prolly::Map,
+};
 use async_trait::async_trait;
-use db::{ChangedKeysMap, IndexRecord};
+use db::ChangedKeysMap;
 use log::log_enabled;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::default::Default;
 use std::fmt::Debug;
+use std::{collections::HashMap, string::FromUtf8Error};
 use str_macro::str;
 
 // Pull Versions
@@ -247,6 +250,10 @@ pub async fn maybe_end_try_pull(
     // caller wants them in the order to replay (lower mutation ids first).
     pending.reverse();
 
+    // We return the keys that changed due to this pull. This is used by
+    // subscriptions in the JS API when there are no more pending mutations.
+    let mut changed_keys = ChangedKeysMap::new();
+
     // Return replay commits if any.
     if !pending.is_empty() {
         let mut replay_mutations: Vec<ReplayMutation> = Vec::with_capacity(pending.len());
@@ -273,7 +280,7 @@ pub async fn maybe_end_try_pull(
         return Ok(MaybeEndTryPullResponse {
             sync_head: sync_head_hash,
             replay_mutations,
-            changed_keys: ChangedKeysMap::new(),
+            changed_keys,
         });
     }
 
@@ -285,23 +292,19 @@ pub async fn maybe_end_try_pull(
     let new_main_head_map = prolly::Map::load(sync_head.value_hash(), &dag_write.read())
         .await
         .map_err(LoadHeadError)?;
-
     let value_changed_keys =
         prolly::Map::changed_keys(&old_main_head_map, &new_main_head_map).map_err(InvalidUtf8)?;
-
-    fn compare_by_name(a: &IndexRecord, b: &IndexRecord) -> std::cmp::Ordering {
-        a.definition.name.cmp(&b.definition.name)
+    if !value_changed_keys.is_empty() {
+        changed_keys.insert(str!(""), value_changed_keys);
     }
-
-    let mut old_indexes = main_snapshot.indexes();
-    let mut new_indexes = sync_head.indexes();
-    old_indexes.sort_by(compare_by_name);
-    new_indexes.sort_by(compare_by_name);
-    // TODO(arv): Implement
-
-    // old_indexes.first().unwrap()
-
-    // old_indexes.iter()
+    add_changed_keys_for_indexes(
+        &main_snapshot,
+        &sync_head,
+        &dag_write.read(),
+        &mut changed_keys,
+    )
+    .await
+    .map_err(ChangedKeysError)?;
 
     // No mutations to replay so set the main head to the sync head and sync complete!
     dag_write
@@ -330,16 +333,71 @@ pub async fn maybe_end_try_pull(
             main_snapshot.value_hash()
         );
     }
-    let mut changed_keys = ChangedKeysMap::new();
-    if !value_changed_keys.is_empty() {
-        changed_keys.insert(str!(""), value_changed_keys);
-    }
 
     Ok(MaybeEndTryPullResponse {
         sync_head: sync_head_hash.to_string(),
         replay_mutations: Vec::new(),
         changed_keys,
     })
+}
+
+#[derive(Debug)]
+pub enum ChangedKeysError {
+    GetMapError(GetMapError),
+    InvalidUtf8(FromUtf8Error),
+}
+
+async fn add_changed_keys_for_indexes<'a>(
+    main_snapshot: &'a Commit,
+    sync_head: &'a Commit,
+    read: &dag::Read<'a>,
+    changed_keys_map: &mut ChangedKeysMap,
+) -> Result<(), ChangedKeysError> {
+    use ChangedKeysError::*;
+
+    fn all_keys(old_map: &Map) -> Result<Vec<String>, ChangedKeysError> {
+        old_map
+            .iter()
+            .map(|e| String::from_utf8(e.key.to_vec()))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(InvalidUtf8)
+    }
+
+    let old_indexes = db::read_indexes(main_snapshot);
+    let mut new_indexes = db::read_indexes(sync_head);
+
+    for (old_index_name, old_index) in old_indexes {
+        let x = old_index.get_map(&read).await.map_err(GetMapError)?;
+        let old_map = x.get_map();
+        if let Some(new_index) = new_indexes.get(&old_index_name) {
+            let guard = new_index.get_map(&read).await.map_err(GetMapError)?;
+            let new_map = guard.get_map();
+            let changed_keys = Map::changed_keys(&old_map, &new_map).map_err(InvalidUtf8)?;
+            drop(guard);
+            new_indexes.remove(&old_index_name);
+            if !changed_keys.is_empty() {
+                changed_keys_map.insert(old_index_name, changed_keys);
+            }
+        } else {
+            // old index name is not in the new indexes. All keys changed!
+            let changed_keys = all_keys(&old_map)?;
+            if !changed_keys.is_empty() {
+                changed_keys_map.insert(old_index_name, changed_keys);
+            }
+        }
+    }
+
+    for (new_index_name, new_index) in new_indexes {
+        // new index name is not in the old indexes. All keys changed!
+        let guard = new_index.get_map(&read).await.map_err(GetMapError)?;
+        let new_map = guard.get_map();
+        let changed_keys = all_keys(&new_map)?;
+        if !changed_keys.is_empty() {
+            changed_keys_map.insert(new_index_name, all_keys(&new_map)?);
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Default, PartialEq, Serialize)]
@@ -1229,6 +1287,7 @@ mod tests {
             pub intervening_sync: bool,
             pub exp_replay_ids: Vec<u64>,
             pub exp_err: Option<&'a str>,
+            pub exp_changed_keys: ChangedKeysMap,
         }
         let cases = [
             Case {
@@ -1238,6 +1297,7 @@ mod tests {
                 intervening_sync: false,
                 exp_replay_ids: vec![],
                 exp_err: None,
+                exp_changed_keys: ChangedKeysMap::new(),
             },
             Case {
                 name: "2 pending but nothing to replay",
@@ -1246,6 +1306,7 @@ mod tests {
                 intervening_sync: false,
                 exp_replay_ids: vec![],
                 exp_err: None,
+                exp_changed_keys: ChangedKeysMap::new(),
             },
             Case {
                 name: "3 pending, 2 to replay",
@@ -1254,6 +1315,7 @@ mod tests {
                 intervening_sync: false,
                 exp_replay_ids: vec![2, 3],
                 exp_err: None,
+                exp_changed_keys: ChangedKeysMap::new(),
             },
             Case {
                 name: "another sync landed during replay",
@@ -1262,6 +1324,7 @@ mod tests {
                 intervening_sync: true,
                 exp_replay_ids: vec![],
                 exp_err: Some("OverlappingSyncsJSLogInfo"),
+                exp_changed_keys: ChangedKeysMap::new(),
             },
         ];
         for c in cases.iter() {
@@ -1340,6 +1403,8 @@ mod tests {
                         c.exp_replay_ids,
                         &resp.replay_mutations
                     );
+                    assert_eq!(resp.changed_keys, c.exp_changed_keys);
+
                     for i in 0..c.exp_replay_ids.len() {
                         let chain_idx = chain.len() - c.num_needing_replay + i;
                         assert_eq!(c.exp_replay_ids[i], resp.replay_mutations[i].id);

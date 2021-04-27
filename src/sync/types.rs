@@ -1,4 +1,4 @@
-use super::{patch, PullError, PushError};
+use super::{patch, ChangedKeysError, PullError, PushError};
 use crate::{
     dag,
     db::{self, ChangedKeysMap},
@@ -117,6 +117,7 @@ pub enum BeginTryPullError {
 
 #[derive(Debug)]
 pub enum MaybeEndTryPullError {
+    ChangedKeysError(ChangedKeysError),
     CommitError(dag::Error),
     GetMainHeadError(dag::Error),
     GetSyncHeadError(dag::Error),
