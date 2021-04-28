@@ -289,7 +289,7 @@ pub async fn maybe_end_try_pull(
     let old_main_head_map = prolly::Map::load(main_snapshot.value_hash(), &dag_read)
         .await
         .map_err(LoadHeadError)?;
-    let new_main_head_map = prolly::Map::load(sync_head.value_hash(), &dag_write.read())
+    let new_main_head_map = prolly::Map::load(sync_head.value_hash(), &dag_read)
         .await
         .map_err(LoadHeadError)?;
     let value_changed_keys =
@@ -297,14 +297,9 @@ pub async fn maybe_end_try_pull(
     if !value_changed_keys.is_empty() {
         changed_keys.insert(str!(""), value_changed_keys);
     }
-    add_changed_keys_for_indexes(
-        &main_snapshot,
-        &sync_head,
-        &dag_write.read(),
-        &mut changed_keys,
-    )
-    .await
-    .map_err(ChangedKeysError)?;
+    add_changed_keys_for_indexes(&main_snapshot, &sync_head, &dag_read, &mut changed_keys)
+        .await
+        .map_err(ChangedKeysError)?;
 
     // No mutations to replay so set the main head to the sync head and sync complete!
     dag_write
@@ -355,12 +350,6 @@ async fn add_changed_keys_for_indexes<'a>(
 ) -> Result<(), ChangedKeysError> {
     use ChangedKeysError::*;
 
-    println!(
-        "Comparing {:?} {:?}",
-        main_snapshot.indexes(),
-        sync_head.indexes()
-    );
-
     fn all_keys(old_map: &Map) -> Result<Vec<String>, ChangedKeysError> {
         old_map
             .iter()
@@ -372,15 +361,10 @@ async fn add_changed_keys_for_indexes<'a>(
     let old_indexes = db::read_indexes(main_snapshot);
     let mut new_indexes = db::read_indexes(sync_head);
 
-    println!("XXX, old_indexes.len(): {}", old_indexes.len());
-    println!("XXX, new_indexes.len(): {}", new_indexes.len());
-
     for (old_index_name, old_index) in old_indexes {
-        println!("XXX old {:?}", old_index_name);
         let x = old_index.get_map(&read).await.map_err(GetMapError)?;
         let old_map = x.get_map();
         if let Some(new_index) = new_indexes.get(&old_index_name) {
-            println!("Has both new and old for {}", &old_index_name);
             let guard = new_index.get_map(&read).await.map_err(GetMapError)?;
             let new_map = guard.get_map();
             let changed_keys = Map::changed_keys(&old_map, &new_map).map_err(InvalidUtf8)?;
@@ -390,7 +374,6 @@ async fn add_changed_keys_for_indexes<'a>(
                 changed_keys_map.insert(old_index_name, changed_keys);
             }
         } else {
-            println!("Only has old for {}", &old_index_name);
             // old index name is not in the new indexes. All keys changed!
             let changed_keys = all_keys(&old_map)?;
             if !changed_keys.is_empty() {
@@ -400,7 +383,6 @@ async fn add_changed_keys_for_indexes<'a>(
     }
 
     for (new_index_name, new_index) in new_indexes {
-        println!("XXX new {:?}", new_index_name);
         // new index name is not in the old indexes. All keys changed!
         let guard = new_index.get_map(&read).await.map_err(GetMapError)?;
         let new_map = guard.get_map();
@@ -1483,14 +1465,12 @@ mod tests {
                 json_pointer,
             }) = index_def
             {
-                println!("XXX here");
                 chain.push(create_index(name.to_string(), prefix, json_pointer, &store).await);
             }
 
             let entries: Vec<(&str, &str)> = base_map.into_iter().collect();
             add_snapshot(&mut chain, &store, entries.into()).await;
 
-            println!("chain len {}", chain.len());
             let base_snapshot = chain.last().unwrap();
             let (base_last_mutation_id, base_cookie) =
                 Commit::snapshot_meta_parts(base_snapshot).unwrap();
@@ -1554,55 +1534,71 @@ mod tests {
             assert_eq!(result.changed_keys, expected_changed_keys_map,);
         }
 
-        // test(
-        //     map!(),
-        //     None,
-        //     vec![Operation::Put {
-        //         key: str!("key"),
-        //         value: json!("value"),
-        //     }],
-        //     map!(str!("") => vec![str!("key")]),
-        // )
-        // .await;
+        test(
+            map!(),
+            None,
+            vec![Operation::Put {
+                key: str!("key"),
+                value: json!("value"),
+            }],
+            map!(str!("") => vec![str!("key")]),
+        )
+        .await;
 
-        // test(
-        //     map!("foo" => "val"),
-        //     None,
-        //     vec![Operation::Put {
-        //         key: str!("foo"),
-        //         value: json!("new val"),
-        //     }],
-        //     map!(str!("") => vec![str!("foo")]),
-        // )
-        // .await;
+        test(
+            map!("foo" => "val"),
+            None,
+            vec![Operation::Put {
+                key: str!("foo"),
+                value: json!("new val"),
+            }],
+            map!(str!("") => vec![str!("foo")]),
+        )
+        .await;
 
-        // test(
-        //     map!("a" => "1"),
-        //     None,
-        //     vec![Operation::Put {
-        //         key: str!("b"),
-        //         value: json!("2"),
-        //     }],
-        //     map!(str!("") => vec![str!("b")]),
-        // )
-        // .await;
+        test(
+            map!("a" => "1"),
+            None,
+            vec![Operation::Put {
+                key: str!("b"),
+                value: json!("2"),
+            }],
+            map!(str!("") => vec![str!("b")]),
+        )
+        .await;
 
-        // test(
-        //     map!("a" => "1"),
-        //     None,
-        //     vec![
-        //         Operation::Put {
-        //             key: str!("b"),
-        //             value: json!("3"),
-        //         },
-        //         Operation::Put {
-        //             key: str!("a"),
-        //             value: json!("2"),
-        //         },
-        //     ],
-        //     map!(str!("") => vec![str!("a"),str!("b")]),
-        // )
-        // .await;
+        test(
+            map!("a" => "1"),
+            None,
+            vec![
+                Operation::Put {
+                    key: str!("b"),
+                    value: json!("3"),
+                },
+                Operation::Put {
+                    key: str!("a"),
+                    value: json!("2"),
+                },
+            ],
+            map!(str!("") => vec![str!("a"), str!("b")]),
+        )
+        .await;
+
+        test(
+            map!("a" => "1", "b" => "2"),
+            None,
+            vec![Operation::Del { key: str!("b") }],
+            map!(str!("") => vec![str!("b")]),
+        )
+        .await;
+
+        test(
+            map!("a" => "1", "b" => "2"),
+            None,
+            vec![Operation::Del { key: str!("c") }],
+            map!(),
+        )
+        .await;
 
         test(
             map!("a1" => r#"{"id": "a-1", "x": 1}"#),
@@ -1617,17 +1613,51 @@ mod tests {
             }],
             map!(
                     str!("") => vec![str!("a2")],
+                    str!("i1") => vec![str!("\u{0}a-2\u{0}a2")]
+            ),
+        )
+        .await;
+
+        test(
+            map!(),
+            Some(IndexDef {
+                name: "i1",
+                prefix: "",
+                json_pointer: "/id",
+            }),
+            vec![
+                Operation::Put {
+                    key: str!("a1"),
+                    value: json!({"id": "a-1", "x": 1}),
+                },
+                Operation::Put {
+                    key: str!("a2"),
+                    value: json!({"id": "a-2", "x": 2}),
+                },
+            ],
+            map!(
+                    str!("") => vec![str!("a1"), str!("a2")],
                     str!("i1") => vec![str!("\u{0}a-1\u{0}a1"), str!("\u{0}a-2\u{0}a2")]
             ),
         )
         .await;
 
-        // test(
-        //     map!("a" => "1", "b" => "2"),
-        //     None,
-        //     vec![Operation::Del { key: str!("b") }],
-        //     map!(str!("") => vec![str!("b")]),
-        // )
-        // .await;
+        test(
+            map!("a1" => r#"{"id": "a-1", "x": 1}"#),
+            Some(IndexDef {
+                name: "i1",
+                prefix: "",
+                json_pointer: "/id",
+            }),
+            vec![Operation::Put {
+                key: str!("a2"),
+                value: json!({"id": "a-2", "x": 2}),
+            }],
+            map!(
+                    str!("") => vec![str!("a2")],
+                    str!("i1") => vec![str!("\u{0}a-2\u{0}a2")]
+            ),
+        )
+        .await;
     }
 }

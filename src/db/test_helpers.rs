@@ -5,7 +5,6 @@ use crate::dag;
 use crate::db;
 use crate::util::rlog::LogContext;
 use serde_json::json;
-use std::collections::hash_map::HashMap;
 use str_macro::str;
 
 pub type Chain = Vec<Commit>;
@@ -117,10 +116,10 @@ pub async fn add_snapshot<'a>(
     let cookie = serde_json::json!(format!("cookie_{}", chain.len()));
     let mut w = Write::new_snapshot(
         Whence::Head(str!(db::DEFAULT_HEAD_NAME)),
-        chain[chain.len() - 1].next_mutation_id(),
+        chain.last().unwrap().next_mutation_id(),
         cookie,
         store.write(LogContext::new()).await.unwrap(),
-        HashMap::new(),
+        db::read_indexes(chain.last().unwrap()),
     )
     .await
     .unwrap();
