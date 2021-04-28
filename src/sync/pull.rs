@@ -355,6 +355,12 @@ async fn add_changed_keys_for_indexes<'a>(
 ) -> Result<(), ChangedKeysError> {
     use ChangedKeysError::*;
 
+    println!(
+        "Comparing {:?} {:?}",
+        main_snapshot.indexes(),
+        sync_head.indexes()
+    );
+
     fn all_keys(old_map: &Map) -> Result<Vec<String>, ChangedKeysError> {
         old_map
             .iter()
@@ -366,10 +372,15 @@ async fn add_changed_keys_for_indexes<'a>(
     let old_indexes = db::read_indexes(main_snapshot);
     let mut new_indexes = db::read_indexes(sync_head);
 
+    println!("XXX, old_indexes.len(): {}", old_indexes.len());
+    println!("XXX, new_indexes.len(): {}", new_indexes.len());
+
     for (old_index_name, old_index) in old_indexes {
+        println!("XXX old {:?}", old_index_name);
         let x = old_index.get_map(&read).await.map_err(GetMapError)?;
         let old_map = x.get_map();
         if let Some(new_index) = new_indexes.get(&old_index_name) {
+            println!("Has both new and old for {}", &old_index_name);
             let guard = new_index.get_map(&read).await.map_err(GetMapError)?;
             let new_map = guard.get_map();
             let changed_keys = Map::changed_keys(&old_map, &new_map).map_err(InvalidUtf8)?;
@@ -379,6 +390,7 @@ async fn add_changed_keys_for_indexes<'a>(
                 changed_keys_map.insert(old_index_name, changed_keys);
             }
         } else {
+            println!("Only has old for {}", &old_index_name);
             // old index name is not in the new indexes. All keys changed!
             let changed_keys = all_keys(&old_map)?;
             if !changed_keys.is_empty() {
@@ -388,6 +400,7 @@ async fn add_changed_keys_for_indexes<'a>(
     }
 
     for (new_index_name, new_index) in new_indexes {
+        println!("XXX new {:?}", new_index_name);
         // new index name is not in the old indexes. All keys changed!
         let guard = new_index.get_map(&read).await.map_err(GetMapError)?;
         let new_map = guard.get_map();
@@ -672,6 +685,9 @@ mod tests {
     }
 
     macro_rules! map(
+        () => (
+            ::std::collections::HashMap::new()
+        );
         { $($key:expr => $value:expr),+ } => {
             {
                 let mut m = ::std::collections::HashMap::new();
@@ -692,7 +708,7 @@ mod tests {
         let store = dag::Store::new(Box::new(MemStore::new()));
         let mut chain: Chain = vec![];
         add_genesis(&mut chain, &store).await;
-        add_snapshot(&mut chain, &store, Some(vec![str!("foo"), str!("\"bar\"")])).await;
+        add_snapshot(&mut chain, &store, Some(vec![("foo", "\"bar\"")])).await;
         // chain[2] is an index change
         add_index_change(&mut chain, &store).await;
         let starting_num_commits = chain.len();
@@ -1031,7 +1047,7 @@ mod tests {
             let w = store.write(LogContext::new()).await.unwrap();
             w.set_head(
                 DEFAULT_HEAD_NAME,
-                Some(chain[chain.len() - 1].chunk().hash()),
+                Some(chain.last().unwrap().chunk().hash()),
             )
             .await
             .unwrap();
@@ -1339,7 +1355,7 @@ mod tests {
             dag_write
                 .set_head(
                     db::DEFAULT_HEAD_NAME,
-                    Some(chain[chain.len() - 1].chunk().hash()),
+                    Some(chain.last().unwrap().chunk().hash()),
                 )
                 .await
                 .unwrap();
@@ -1442,5 +1458,176 @@ mod tests {
                 }
             };
         }
+    }
+
+    #[async_std::test]
+    async fn test_changed_keys() {
+        struct IndexDef<'a> {
+            name: &'a str,
+            prefix: &'a str,
+            json_pointer: &'a str,
+        }
+        async fn test<'a>(
+            base_map: HashMap<&str, &str>,
+            index_def: Option<IndexDef<'a>>,
+            patch: Vec<Operation>,
+            expected_changed_keys_map: ChangedKeysMap,
+        ) {
+            let store = dag::Store::new(Box::new(MemStore::new()));
+            let mut chain: Chain = vec![];
+            add_genesis(&mut chain, &store).await;
+
+            if let Some(IndexDef {
+                name,
+                prefix,
+                json_pointer,
+            }) = index_def
+            {
+                println!("XXX here");
+                chain.push(create_index(name.to_string(), prefix, json_pointer, &store).await);
+            }
+
+            let entries: Vec<(&str, &str)> = base_map.into_iter().collect();
+            add_snapshot(&mut chain, &store, entries.into()).await;
+
+            println!("chain len {}", chain.len());
+            let base_snapshot = chain.last().unwrap();
+            let (base_last_mutation_id, base_cookie) =
+                Commit::snapshot_meta_parts(base_snapshot).unwrap();
+
+            let request_id = str!("request_id");
+            let client_id = str!("test_client_id");
+            let pull_auth = str!("pull_auth");
+            let pull_url = str!("pull_url");
+            let schema_version = str!("schema_version");
+
+            let new_cookie = json!("new_cookie");
+
+            let exp_pull_req = PullRequest {
+                client_id: client_id.clone(),
+                cookie: base_cookie.clone(),
+                last_mutation_id: base_last_mutation_id,
+                pull_version: PULL_VERSION,
+                schema_version: schema_version.clone(),
+            };
+
+            let pull_resp = PullResponse {
+                cookie: new_cookie.clone(),
+                last_mutation_id: base_last_mutation_id,
+                patch,
+            };
+
+            let fake_puller = FakePuller {
+                exp_pull_req: &exp_pull_req.clone(),
+                exp_pull_url: &pull_url.clone(),
+                exp_pull_auth: &pull_auth.clone(),
+                exp_request_id: &request_id,
+                resp: pull_resp.into(),
+                err: None,
+            };
+
+            let begin_try_pull_req = BeginTryPullRequest {
+                pull_url: pull_url.clone(),
+                pull_auth: pull_auth.clone(),
+                schema_version: schema_version.clone(),
+            };
+
+            let pull_result = begin_pull(
+                client_id.clone(),
+                begin_try_pull_req,
+                &fake_puller,
+                request_id.clone(),
+                &store,
+                LogContext::new(),
+            )
+            .await
+            .unwrap();
+
+            let req = MaybeEndTryPullRequest {
+                request_id: request_id.clone(),
+                sync_head: pull_result.sync_head.clone(),
+            };
+            let result = maybe_end_try_pull(&store, LogContext::new(), req)
+                .await
+                .unwrap();
+
+            assert_eq!(result.changed_keys, expected_changed_keys_map,);
+        }
+
+        // test(
+        //     map!(),
+        //     None,
+        //     vec![Operation::Put {
+        //         key: str!("key"),
+        //         value: json!("value"),
+        //     }],
+        //     map!(str!("") => vec![str!("key")]),
+        // )
+        // .await;
+
+        // test(
+        //     map!("foo" => "val"),
+        //     None,
+        //     vec![Operation::Put {
+        //         key: str!("foo"),
+        //         value: json!("new val"),
+        //     }],
+        //     map!(str!("") => vec![str!("foo")]),
+        // )
+        // .await;
+
+        // test(
+        //     map!("a" => "1"),
+        //     None,
+        //     vec![Operation::Put {
+        //         key: str!("b"),
+        //         value: json!("2"),
+        //     }],
+        //     map!(str!("") => vec![str!("b")]),
+        // )
+        // .await;
+
+        // test(
+        //     map!("a" => "1"),
+        //     None,
+        //     vec![
+        //         Operation::Put {
+        //             key: str!("b"),
+        //             value: json!("3"),
+        //         },
+        //         Operation::Put {
+        //             key: str!("a"),
+        //             value: json!("2"),
+        //         },
+        //     ],
+        //     map!(str!("") => vec![str!("a"),str!("b")]),
+        // )
+        // .await;
+
+        test(
+            map!("a1" => r#"{"id": "a-1", "x": 1}"#),
+            Some(IndexDef {
+                name: "i1",
+                prefix: "",
+                json_pointer: "/id",
+            }),
+            vec![Operation::Put {
+                key: str!("a2"),
+                value: json!({"id": "a-2", "x": 2}),
+            }],
+            map!(
+                    str!("") => vec![str!("a2")],
+                    str!("i1") => vec![str!("\u{0}a-1\u{0}a1"), str!("\u{0}a-2\u{0}a2")]
+            ),
+        )
+        .await;
+
+        // test(
+        //     map!("a" => "1", "b" => "2"),
+        //     None,
+        //     vec![Operation::Del { key: str!("b") }],
+        //     map!(str!("") => vec![str!("b")]),
+        // )
+        // .await;
     }
 }
