@@ -286,14 +286,15 @@ pub async fn maybe_end_try_pull(
 
     // TODO check invariants
 
-    let old_main_head_map = prolly::Map::load(main_snapshot.value_hash(), &dag_read)
+    // Compute diffs (changed keys) for value map and index maps.
+    let main_snapshot_map = prolly::Map::load(main_snapshot.value_hash(), &dag_read)
         .await
         .map_err(LoadHeadError)?;
-    let new_main_head_map = prolly::Map::load(sync_head.value_hash(), &dag_read)
+    let sync_head_map = prolly::Map::load(sync_head.value_hash(), &dag_read)
         .await
         .map_err(LoadHeadError)?;
     let value_changed_keys =
-        prolly::Map::changed_keys(&old_main_head_map, &new_main_head_map).map_err(InvalidUtf8)?;
+        prolly::Map::changed_keys(&main_snapshot_map, &sync_head_map).map_err(InvalidUtf8)?;
     if !value_changed_keys.is_empty() {
         changed_keys.insert(str!(""), value_changed_keys);
     }
