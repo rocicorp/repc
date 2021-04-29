@@ -226,11 +226,9 @@ pub async fn maybe_end_try_pull(
         .await
         .map_err(GetMainHeadError)?
         .ok_or(MissingMainHead)?;
-
     let main_snapshot = Commit::base_snapshot(&main_head_hash, &dag_read)
         .await
         .map_err(NoBaseSnapshot)?;
-
     let meta = sync_snapshot.meta();
     let sync_snapshot_basis = meta.basis_hash().ok_or(SyncSnapshotWithNoBasis)?;
     if sync_snapshot_basis != main_snapshot.chunk().hash() {
@@ -280,6 +278,10 @@ pub async fn maybe_end_try_pull(
         return Ok(MaybeEndTryPullResponse {
             sync_head: sync_head_hash,
             replay_mutations,
+            // The changed keys are not reported when further replays are
+            // needed. The changed_keys will be reported at the end when there
+            // are no more mutations to be replay and then it will be reported
+            // relative to DEFAULT_HEAD_NAME.
             changed_keys,
         });
     }
@@ -1286,6 +1288,7 @@ mod tests {
             pub intervening_sync: bool,
             pub exp_replay_ids: Vec<u64>,
             pub exp_err: Option<&'a str>,
+            // The expected changed keys as reported by the maybe end pull.
             pub exp_changed_keys: ChangedKeysMap,
         }
         let cases = [
@@ -1296,7 +1299,7 @@ mod tests {
                 intervening_sync: false,
                 exp_replay_ids: vec![],
                 exp_err: None,
-                exp_changed_keys: ChangedKeysMap::new(),
+                exp_changed_keys: map!("".to_string() => vec!["key/0".to_string()]),
             },
             Case {
                 name: "2 pending but nothing to replay",
@@ -1305,7 +1308,7 @@ mod tests {
                 intervening_sync: false,
                 exp_replay_ids: vec![],
                 exp_err: None,
-                exp_changed_keys: ChangedKeysMap::new(),
+                exp_changed_keys: map!("".to_string() => vec!["key/1".to_string()]),
             },
             Case {
                 name: "3 pending, 2 to replay",
@@ -1314,6 +1317,7 @@ mod tests {
                 intervening_sync: false,
                 exp_replay_ids: vec![2, 3],
                 exp_err: None,
+                // The changed keys are not reported when further replay is needed.
                 exp_changed_keys: ChangedKeysMap::new(),
             },
             Case {
@@ -1326,7 +1330,7 @@ mod tests {
                 exp_changed_keys: ChangedKeysMap::new(),
             },
         ];
-        for c in cases.iter() {
+        for (i, c) in cases.iter().enumerate() {
             let store = dag::Store::new(Box::new(MemStore::new()));
             let mut chain: Chain = vec![];
             add_genesis(&mut chain, &store).await;
@@ -1344,12 +1348,19 @@ mod tests {
                 .unwrap();
 
             // Add snapshot and replayed commits to the sync chain.
-            let w = db::Write::new_snapshot(
-                db::Whence::Hash(chain[0].chunk().hash().to_string()),
+            let mut w = db::Write::new_snapshot(
+                db::Whence::Hash(chain.first().unwrap().chunk().hash().to_string()),
                 0,
                 json!("sync_cookie"),
                 dag_write,
-                db::read_indexes(&chain[0]),
+                db::read_indexes(chain.first().unwrap()),
+            )
+            .await
+            .unwrap();
+            w.put(
+                LogContext::new(),
+                format!("key/{}", i).as_bytes().to_vec(),
+                i.to_string().as_bytes().to_vec(),
             )
             .await
             .unwrap();
