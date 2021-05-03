@@ -55,12 +55,6 @@ impl From<JsValue> for StoreError {
     }
 }
 
-impl From<futures::channel::oneshot::Canceled> for StoreError {
-    fn from(_e: futures::channel::oneshot::Canceled) -> StoreError {
-        StoreError::Str("oneshot cancelled".into())
-    }
-}
-
 pub struct IdbStore {
     // We would like:
     // - tests that verify essential behavior such as tx isolation.
