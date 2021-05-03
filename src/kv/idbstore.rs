@@ -106,9 +106,8 @@ pub struct IdbStore {
 
 impl IdbStore {
     pub async fn new(name: &str) -> Result<IdbStore> {
-        let p = open_database(name)?;
-        let js_val = JsFuture::from(p).await?;
-        let db: IdbDatabase = js_val.unchecked_into();
+        let v = JsFuture::from(open_database(name)?).await?;
+        let db: IdbDatabase = v.unchecked_into();
 
         Ok(IdbStore {
             db: RwLock::new(db),
