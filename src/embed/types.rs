@@ -1,6 +1,6 @@
 #![allow(clippy::redundant_pattern_matching)] // For derive(Deserialize).
 
-use crate::db::{self, ChangedKeysMap};
+use crate::db::{self, ChangedKeysMapRpc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -56,7 +56,7 @@ pub struct CommitTransactionResponse {
     #[serde(rename = "ref")]
     pub hash: String,
     #[serde(rename = "changedKeys")]
-    pub changed_keys: ChangedKeysMap,
+    pub changed_keys: ChangedKeysMapRpc,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

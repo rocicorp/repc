@@ -1,12 +1,12 @@
 use super::dispatch::Request;
 use super::types::*;
-use crate::dag;
 use crate::db;
 use crate::fetch;
 use crate::sync;
 use crate::util::rlog;
 use crate::util::rlog::LogContext;
 use crate::util::to_debug;
+use crate::{dag, db::changed_keys_map_to_rpc};
 use async_std::stream::StreamExt;
 use async_std::sync::{Receiver, RecvError, RwLock};
 use futures::stream::futures_unordered::FuturesUnordered;
@@ -483,7 +483,10 @@ async fn do_commit<'a, 'b>(
         .commit_with_changed_keys(head_name, req.generate_changed_keys)
         .await
         .map_err(CommitError)?;
-    Ok(CommitTransactionResponse { hash, changed_keys })
+    Ok(CommitTransactionResponse {
+        hash,
+        changed_keys: changed_keys_map_to_rpc(changed_keys).map_err(InvalidUtf8)?,
+    })
 }
 
 async fn do_close_transaction<'a, 'b>(
@@ -752,6 +755,7 @@ enum OpenTransactionError {
 #[derive(Debug)]
 enum CommitTransactionError {
     CommitError(db::CommitError),
+    InvalidUtf8(std::string::FromUtf8Error),
     TransactionIsReadOnly,
     UnknownTransaction,
 }

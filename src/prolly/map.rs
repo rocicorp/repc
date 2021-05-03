@@ -6,9 +6,9 @@ use super::Entry;
 use crate::dag;
 use crate::dag::Read;
 use crate::dag::Write;
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::iter::{Iterator, Peekable};
-use std::{cmp::Ordering, string::FromUtf8Error};
 use std::{collections::btree_map::Iter as BTreeMapIter, fmt::Debug};
 
 type Hash = String;
@@ -127,35 +127,35 @@ impl Map {
     }
 
     // Returns the diff between the pending entries and the already flushed entries.
-    pub fn pending_changed_keys(&self) -> Result<Vec<String>, FromUtf8Error> {
-        let mut keys = Vec::with_capacity(self.pending.len());
+    pub fn pending_changed_keys(&self) -> Vec<Vec<u8>> {
+        let mut keys: Vec<Vec<u8>> = Vec::with_capacity(self.pending.len());
         for (key, pending_val) in self.pending.iter() {
             match pending_val {
                 Some(pending_val) => match self.base_get(key) {
                     Some(base_val) => {
                         if pending_val != base_val {
-                            keys.push(String::from_utf8(key.clone())?);
+                            keys.push(key.to_vec());
                         }
                     }
                     None => {
-                        keys.push(String::from_utf8(key.clone())?);
+                        keys.push(key.to_vec());
                     }
                 },
                 None => {
                     if self.base_has(key) {
-                        keys.push(String::from_utf8(key.clone())?);
+                        keys.push(key.to_vec());
                     }
                 }
             }
         }
-        Ok(keys)
+        keys
     }
 
     /// Returns the keys that are different between two maps.
-    pub fn changed_keys<'a>(a: &'a Self, b: &'a Self) -> Result<Vec<String>, FromUtf8Error> {
+    pub fn changed_keys<'a>(a: &'a Self, b: &'a Self) -> Vec<Vec<u8>> {
         let mut it_a = a.iter();
         let mut it_b = b.iter();
-        let mut keys = vec![];
+        let mut keys: Vec<Vec<u8>> = vec![];
 
         let mut a = it_a.next();
         let mut b = it_b.next();
@@ -163,36 +163,36 @@ impl Map {
             match (a, b) {
                 (None, None) => break,
                 (None, Some(b_entry)) => {
-                    keys.push(String::from_utf8(b_entry.key.to_vec())?);
+                    keys.push(b_entry.key.to_vec());
                     b = it_b.next();
                 }
                 (Some(a_entry), None) => {
-                    keys.push(String::from_utf8(a_entry.key.to_vec())?);
+                    keys.push(a_entry.key.to_vec());
                     a = it_a.next();
                 }
                 (Some(a_entry), Some(b_entry)) => {
                     let ord = a_entry.key.cmp(b_entry.key);
                     match ord {
                         Ordering::Less => {
-                            keys.push(String::from_utf8(a_entry.key.to_vec())?);
+                            keys.push(a_entry.key.to_vec());
                             a = it_a.next();
                         }
                         Ordering::Equal => {
                             if a_entry.val != b_entry.val {
-                                keys.push(String::from_utf8(a_entry.key.to_vec())?);
+                                keys.push(a_entry.key.to_vec());
                             }
                             a = it_a.next();
                             b = it_b.next();
                         }
                         Ordering::Greater => {
-                            keys.push(String::from_utf8(b_entry.key.to_vec())?);
+                            keys.push(b_entry.key.to_vec());
                             b = it_b.next();
                         }
                     };
                 }
             }
         }
-        Ok(keys)
+        keys
     }
 }
 
@@ -289,7 +289,6 @@ mod tests {
     use crate::dag::Store;
     use crate::kv::memstore::MemStore;
     use crate::util::rlog::LogContext;
-    use str_macro::str;
 
     fn make_map(mut base: Option<Vec<&str>>, pending: Vec<&str>, deleted: Vec<&str>) -> Map {
         let entries = base.as_mut().map(|entries| {
@@ -640,18 +639,12 @@ mod tests {
 
     #[test]
     fn changed_keys() {
-        fn test(old: &Map, new: &Map, mut expected: Vec<&str>) {
+        fn test(old: &Map, new: &Map, mut expected: Vec<&[u8]>) {
             expected.sort();
-            let actual = Map::changed_keys(old, new).unwrap();
-            assert_eq!(
-                expected.iter().map(|e| e.to_string()).collect::<Vec<_>>(),
-                actual
-            );
-            let actual = Map::changed_keys(new, old).unwrap();
-            assert_eq!(
-                expected.iter().map(|e| e.to_string()).collect::<Vec<_>>(),
-                actual
-            );
+            let actual = Map::changed_keys(old, new);
+            assert_eq!(expected, actual);
+            let actual = Map::changed_keys(new, old);
+            assert_eq!(expected, actual);
         }
 
         test(&prolly_map! {}, &prolly_map! {}, vec![]);
@@ -660,32 +653,32 @@ mod tests {
         test(
             &prolly_map! {"a" => "a"},
             &prolly_map! {"a" => "b"},
-            vec!["a"],
+            vec![b"a"],
         );
         test(
             &prolly_map! {"a" => "a"},
             &prolly_map! {"b" => "b"},
-            vec!["a", "b"],
+            vec![b"a", b"b"],
         );
         test(
             &prolly_map! {"a" => "a", "b" => "b"},
             &prolly_map! {"b" => "b", "c" => "c"},
-            vec!["a", "c"],
+            vec![b"a", b"c"],
         );
         test(
             &prolly_map! {"a" => "a", "b" => "b"},
             &prolly_map! {"b" => "b"},
-            vec!["a"],
+            vec![b"a"],
         );
         test(
             &prolly_map! {"b" => "b"},
             &prolly_map! {"b" => "b", "c" => "c"},
-            vec!["c"],
+            vec![b"c"],
         );
         test(
             &prolly_map! {"a" => "a1", "b"=>"b1"},
             &prolly_map! {"a" => "a2", "b" => "b2"},
-            vec!["a", "b"],
+            vec![b"a", b"b"],
         );
     }
 
@@ -704,20 +697,20 @@ mod tests {
         };
 
         map.put(b"c".to_vec(), b"c".to_vec());
-        assert_eq!(map.pending_changed_keys().unwrap(), vec![str!("c")]);
+        assert_eq!(map.pending_changed_keys(), vec![b"c".to_vec()]);
 
         // Set b to b again... should be a nop
         map.put(b"b".to_vec(), b"b".to_vec());
-        assert_eq!(map.pending_changed_keys().unwrap(), vec![str!("c")]);
+        assert_eq!(map.pending_changed_keys(), vec![b"c".to_vec()]);
 
         // Remove c from pending
         map.del(b"c".to_vec());
-        assert_eq!(map.pending_changed_keys().unwrap(), Vec::<String>::new());
+        assert_eq!(map.pending_changed_keys(), Vec::<Vec<u8>>::new());
 
         map.del(b"d".to_vec());
-        assert_eq!(map.pending_changed_keys().unwrap(), Vec::<String>::new());
+        assert_eq!(map.pending_changed_keys(), Vec::<Vec<u8>>::new());
 
         map.put(b"b".to_vec(), b"2".to_vec());
-        assert_eq!(map.pending_changed_keys().unwrap(), vec![str!("b")]);
+        assert_eq!(map.pending_changed_keys(), vec![b"b".to_vec()]);
     }
 }
