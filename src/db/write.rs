@@ -3,8 +3,7 @@ use super::{commit, index, read, scan, ReadCommitError, Whence};
 use crate::dag;
 use crate::prolly;
 use crate::util::rlog;
-use std::collections::HashMap;
-use std::string::FromUtf8Error;
+use std::{collections::HashMap, string::FromUtf8Error};
 use str_macro::str;
 
 #[allow(dead_code)]
@@ -60,10 +59,24 @@ pub async fn init_db(dag_write: dag::Write<'_>, head_name: &str) -> Result<Strin
     w.commit(head_name).await.map_err(CommitError)
 }
 
-// The ChangedKeyMap is used to describe a map of changed keys. The key in the
+// The ChangedKeysMap is used to describe a map of changed keys. The key in the
 // map is the name of the index. The primary index uses `""` in this map. The
 // value of the map is the keys that changed in the last pull/mutations.
-pub type ChangedKeysMap = HashMap<String, Vec<String>>;
+pub type ChangedKeysMap = HashMap<String, Vec<Vec<u8>>>;
+
+pub type ChangedKeysMapRpc = HashMap<String, Vec<String>>;
+
+pub fn changed_keys_map_to_rpc(map: ChangedKeysMap) -> Result<ChangedKeysMapRpc, FromUtf8Error> {
+    map.into_iter()
+        .map(|(k, v)| {
+            let v = v
+                .into_iter()
+                .map(|v| String::from_utf8(v))
+                .collect::<Result<_, _>>()?;
+            Ok((k, v))
+        })
+        .collect::<Result<_, _>>()
+}
 
 #[allow(dead_code)]
 impl<'a> Write<'a> {
@@ -358,7 +371,7 @@ impl<'a> Write<'a> {
     ) -> Result<(String, ChangedKeysMap), CommitError> {
         use CommitError::*;
         let value_changed_keys = if generate_changed_keys {
-            self.map.pending_changed_keys().map_err(InvalidUtf8)?
+            self.map.pending_changed_keys()
         } else {
             Vec::new()
         };
@@ -379,7 +392,7 @@ impl<'a> Write<'a> {
                     .await
                     .map_err(GetMapError)?;
                 let map = guard.get_map();
-                let index_changed_keys = map.pending_changed_keys().map_err(InvalidUtf8)?;
+                let index_changed_keys = map.pending_changed_keys();
                 if !index_changed_keys.is_empty() {
                     key_changes.insert(name, index_changed_keys);
                 }
@@ -489,7 +502,6 @@ pub enum CommitError {
     IndexChangeMustNotChangeMutationID,
     IndexChangeMustNotChangeValueHash,
     IndexFlushError(index::IndexFlushError),
-    InvalidUtf8(FromUtf8Error),
     SerializeArgsError(serde_json::error::Error),
     SerializeCookieError(serde_json::error::Error),
 }

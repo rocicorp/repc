@@ -3,13 +3,13 @@
 use super::patch;
 use super::types::*;
 use super::SYNC_HEAD_NAME;
-use crate::dag;
 use crate::db::{Commit, MetaTyped, Whence, DEFAULT_HEAD_NAME};
 use crate::fetch;
 use crate::fetch::errors::FetchError;
 use crate::prolly;
 use crate::util::rlog;
 use crate::util::rlog::LogContext;
+use crate::{dag, db::changed_keys_map_to_rpc};
 use crate::{
     db::{self, index::GetMapError},
     prolly::Map,
@@ -18,9 +18,9 @@ use async_trait::async_trait;
 use db::ChangedKeysMap;
 use log::log_enabled;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::default::Default;
 use std::fmt::Debug;
-use std::{collections::HashMap, string::FromUtf8Error};
 use str_macro::str;
 
 // Pull Versions
@@ -282,7 +282,7 @@ pub async fn maybe_end_try_pull(
             // needed. The changed_keys will be reported at the end when there
             // are no more mutations to be replay and then it will be reported
             // relative to DEFAULT_HEAD_NAME.
-            changed_keys,
+            changed_keys: changed_keys_map_to_rpc(changed_keys).map_err(InvalidUtf8)?,
         });
     }
 
@@ -295,8 +295,7 @@ pub async fn maybe_end_try_pull(
     let sync_head_map = prolly::Map::load(sync_head.value_hash(), &dag_read)
         .await
         .map_err(LoadHeadError)?;
-    let value_changed_keys =
-        prolly::Map::changed_keys(&main_snapshot_map, &sync_head_map).map_err(InvalidUtf8)?;
+    let value_changed_keys = prolly::Map::changed_keys(&main_snapshot_map, &sync_head_map);
     if !value_changed_keys.is_empty() {
         changed_keys.insert(str!(""), value_changed_keys);
     }
@@ -335,14 +334,13 @@ pub async fn maybe_end_try_pull(
     Ok(MaybeEndTryPullResponse {
         sync_head: sync_head_hash.to_string(),
         replay_mutations: Vec::new(),
-        changed_keys,
+        changed_keys: changed_keys_map_to_rpc(changed_keys).map_err(InvalidUtf8)?,
     })
 }
 
 #[derive(Debug)]
 pub enum ChangedKeysError {
     GetMapError(GetMapError),
-    InvalidUtf8(FromUtf8Error),
 }
 
 async fn add_changed_keys_for_indexes<'a>(
@@ -353,12 +351,8 @@ async fn add_changed_keys_for_indexes<'a>(
 ) -> Result<(), ChangedKeysError> {
     use ChangedKeysError::*;
 
-    fn all_keys(old_map: &Map) -> Result<Vec<String>, ChangedKeysError> {
-        old_map
-            .iter()
-            .map(|e| String::from_utf8(e.key.to_vec()))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(InvalidUtf8)
+    fn all_keys(old_map: &Map) -> Vec<Vec<u8>> {
+        old_map.iter().map(|e| e.key.to_vec()).collect()
     }
 
     let old_indexes = db::read_indexes(main_snapshot);
@@ -370,7 +364,7 @@ async fn add_changed_keys_for_indexes<'a>(
         if let Some(new_index) = new_indexes.get(&old_index_name) {
             let guard = new_index.get_map(&read).await.map_err(GetMapError)?;
             let new_map = guard.get_map();
-            let changed_keys = Map::changed_keys(&old_map, &new_map).map_err(InvalidUtf8)?;
+            let changed_keys = Map::changed_keys(&old_map, &new_map);
             drop(guard);
             new_indexes.remove(&old_index_name);
             if !changed_keys.is_empty() {
@@ -378,7 +372,7 @@ async fn add_changed_keys_for_indexes<'a>(
             }
         } else {
             // old index name is not in the new indexes. All keys changed!
-            let changed_keys = all_keys(&old_map)?;
+            let changed_keys = all_keys(&old_map);
             if !changed_keys.is_empty() {
                 changed_keys_map.insert(old_index_name, changed_keys);
             }
@@ -389,9 +383,9 @@ async fn add_changed_keys_for_indexes<'a>(
         // new index name is not in the old indexes. All keys changed!
         let guard = new_index.get_map(&read).await.map_err(GetMapError)?;
         let new_map = guard.get_map();
-        let changed_keys = all_keys(&new_map)?;
+        let changed_keys = all_keys(&new_map);
         if !changed_keys.is_empty() {
-            changed_keys_map.insert(new_index_name, all_keys(&new_map)?);
+            changed_keys_map.insert(new_index_name, all_keys(&new_map));
         }
     }
 
@@ -1299,7 +1293,7 @@ mod tests {
                 intervening_sync: false,
                 exp_replay_ids: vec![],
                 exp_err: None,
-                exp_changed_keys: map!("".to_string() => vec!["key/0".to_string()]),
+                exp_changed_keys: map!("".to_string() => vec!["key/0".into()]),
             },
             Case {
                 name: "2 pending but nothing to replay",
@@ -1308,7 +1302,7 @@ mod tests {
                 intervening_sync: false,
                 exp_replay_ids: vec![],
                 exp_err: None,
-                exp_changed_keys: map!("".to_string() => vec!["key/1".to_string()]),
+                exp_changed_keys: map!("".to_string() => vec!["key/1".into()]),
             },
             Case {
                 name: "3 pending, 2 to replay",
@@ -1413,7 +1407,10 @@ mod tests {
                         c.exp_replay_ids,
                         &resp.replay_mutations
                     );
-                    assert_eq!(resp.changed_keys, c.exp_changed_keys);
+                    assert_eq!(
+                        resp.changed_keys,
+                        changed_keys_map_to_rpc(c.exp_changed_keys.clone()).unwrap()
+                    );
 
                     for i in 0..c.exp_replay_ids.len() {
                         let chain_idx = chain.len() - c.num_needing_replay + i;
@@ -1543,7 +1540,10 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_eq!(result.changed_keys, expected_changed_keys_map,);
+            assert_eq!(
+                result.changed_keys,
+                changed_keys_map_to_rpc(expected_changed_keys_map).unwrap(),
+            );
         }
 
         test(
@@ -1553,7 +1553,7 @@ mod tests {
                 key: str!("key"),
                 value: json!("value"),
             }],
-            map!(str!("") => vec![str!("key")]),
+            map!(str!("") => vec![b"key".to_vec()]),
         )
         .await;
 
@@ -1564,7 +1564,7 @@ mod tests {
                 key: str!("foo"),
                 value: json!("new val"),
             }],
-            map!(str!("") => vec![str!("foo")]),
+            map!(str!("") => vec![b"foo".to_vec()]),
         )
         .await;
 
@@ -1575,7 +1575,7 @@ mod tests {
                 key: str!("b"),
                 value: json!("2"),
             }],
-            map!(str!("") => vec![str!("b")]),
+            map!(str!("") => vec![b"b".to_vec()]),
         )
         .await;
 
@@ -1592,7 +1592,7 @@ mod tests {
                     value: json!("2"),
                 },
             ],
-            map!(str!("") => vec![str!("a"), str!("b")]),
+            map!(str!("") => vec![b"a".to_vec(), b"b".to_vec()]),
         )
         .await;
 
@@ -1600,7 +1600,7 @@ mod tests {
             map!("a" => "1", "b" => "2"),
             None,
             vec![Operation::Del { key: str!("b") }],
-            map!(str!("") => vec![str!("b")]),
+            map!(str!("") => vec![b"b".to_vec()]),
         )
         .await;
 
@@ -1624,8 +1624,8 @@ mod tests {
                 value: json!({"id": "a-2", "x": 2}),
             }],
             map!(
-                    str!("") => vec![str!("a2")],
-                    str!("i1") => vec![str!("\u{0}a-2\u{0}a2")]
+                    str!("") => vec![b"a2".to_vec()],
+                    str!("i1") => vec![str!("\u{0}a-2\u{0}a2").into_bytes()]
             ),
         )
         .await;
@@ -1648,8 +1648,8 @@ mod tests {
                 },
             ],
             map!(
-                    str!("") => vec![str!("a1"), str!("a2")],
-                    str!("i1") => vec![str!("\u{0}a-1\u{0}a1"), str!("\u{0}a-2\u{0}a2")]
+                    str!("") => vec![b"a1".to_vec(), b"a2".to_vec()],
+                    str!("i1") => vec![str!("\u{0}a-1\u{0}a1").into_bytes(), str!("\u{0}a-2\u{0}a2").into_bytes()]
             ),
         )
         .await;
@@ -1666,8 +1666,8 @@ mod tests {
                 value: json!({"id": "a-2", "x": 2}),
             }],
             map!(
-                    str!("") => vec![str!("a2")],
-                    str!("i1") => vec![str!("\u{0}a-2\u{0}a2")]
+                    str!("") => vec![b"a2".to_vec()],
+                    str!("i1") => vec![str!("\u{0}a-2\u{0}a2").into_bytes()]
             ),
         )
         .await;

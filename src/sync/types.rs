@@ -1,7 +1,7 @@
 use super::{patch, ChangedKeysError, PullError, PushError};
 use crate::{
     dag,
-    db::{self, ChangedKeysMap},
+    db::{self, ChangedKeysMapRpc},
     prolly,
 };
 use serde::{Deserialize, Serialize};
@@ -33,7 +33,7 @@ pub struct MaybeEndTryPullResponse {
     #[serde(rename = "syncHead")]
     pub sync_head: String,
     #[serde(rename = "changedKeys")]
-    pub changed_keys: ChangedKeysMap,
+    pub changed_keys: ChangedKeysMapRpc,
 }
 
 // ReplayMutation is returned in the MaybeEndPushResponse, not be confused with

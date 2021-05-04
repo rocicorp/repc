@@ -22,6 +22,6 @@ pub use index::{
 pub use read::{read_commit, read_indexes, OwnedRead, Read, ReadCommitError, ScanError, Whence};
 pub use scan::{ScanItem, ScanOptions, ScanResult, ScanResultError};
 pub use write::{
-    init_db, ChangedKeysMap, ClearError, CommitError, CreateIndexError, DelError, DropIndexError,
-    InitDBError, PutError, Write,
+    changed_keys_map_to_rpc, init_db, ChangedKeysMap, ChangedKeysMapRpc, ClearError, CommitError,
+    CreateIndexError, DelError, DropIndexError, InitDBError, PutError, Write,
 };
