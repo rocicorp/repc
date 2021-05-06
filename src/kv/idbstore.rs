@@ -4,12 +4,10 @@ use crate::util::to_debug;
 use async_std::sync::{Arc, Condvar, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use async_std::task;
 use async_trait::async_trait;
-use js_sys::Promise;
 use std::collections::HashMap;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::{JsCast, JsValue};
-use wasm_bindgen_futures::JsFuture;
 use web_sys::{IdbDatabase, IdbObjectStore, IdbTransaction};
 
 #[wasm_bindgen(module = "/src/kv/idbstore.js")]
@@ -27,19 +25,19 @@ extern "C" {
     fn object_store(tx: &IdbTransaction) -> std::result::Result<IdbObjectStore, JsValue>;
 
     #[wasm_bindgen(catch, js_name = openDatabase)]
-    fn open_database(name: &str) -> std::result::Result<Promise, JsValue>;
+    async fn open_database(name: &str) -> std::result::Result<JsValue, JsValue>;
 
     #[wasm_bindgen(catch, js_name = dbGet)]
-    fn db_get(tx: &IdbTransaction, name: &str) -> std::result::Result<Promise, JsValue>;
+    async fn db_get(tx: &IdbTransaction, name: &str) -> std::result::Result<JsValue, JsValue>;
 
     #[wasm_bindgen(catch, js_name = dbHas)]
-    fn db_has(tx: &IdbTransaction, name: &str) -> std::result::Result<Promise, JsValue>;
+    async fn db_has(tx: &IdbTransaction, name: &str) -> std::result::Result<JsValue, JsValue>;
 
     #[wasm_bindgen(catch, js_name = dropStore)]
-    fn drop_store(name: &str) -> std::result::Result<Promise, JsValue>;
+    async fn drop_store(name: &str) -> std::result::Result<JsValue, JsValue>;
 
     #[wasm_bindgen(catch, js_name = commit)]
-    fn js_commit(tx: &IdbTransaction, entries: &JsValue) -> std::result::Result<Promise, JsValue>;
+    async fn js_commit(tx: &IdbTransaction, entries: &JsValue) -> std::result::Result<(), JsValue>;
 }
 
 impl From<String> for StoreError {
@@ -106,7 +104,7 @@ pub struct IdbStore {
 
 impl IdbStore {
     pub async fn new(name: &str) -> Result<IdbStore> {
-        let v = JsFuture::from(open_database(name)?).await?;
+        let v = open_database(name).await?;
         let db: IdbDatabase = v.unchecked_into();
 
         Ok(IdbStore {
@@ -115,7 +113,7 @@ impl IdbStore {
     }
 
     pub async fn drop_store(name: &str) -> Result<()> {
-        JsFuture::from(drop_store(name)?).await?;
+        drop_store(name).await?;
         Ok(())
     }
 
@@ -167,12 +165,12 @@ impl Read for ReadTransaction<'_> {
 }
 
 async fn has_impl(tx: &IdbTransaction, key: &str) -> Result<bool> {
-    let v = JsFuture::from(db_has(tx, key)?).await?;
-    Ok(v.is_truthy())
+    let v = db_has(tx, key).await?;
+    Ok(v == JsValue::TRUE)
 }
 
 async fn get_impl(tx: &IdbTransaction, key: &str) -> Result<Option<Vec<u8>>> {
-    let v = JsFuture::from(db_get(tx, key)?).await?;
+    let v = db_get(tx, key).await?;
     Ok(if v.is_undefined() {
         None
     } else {
@@ -305,7 +303,7 @@ impl Write for WriteTransaction<'_> {
                 js_sys::Array::of2(&k, &v)
             })
             .collect();
-        JsFuture::from(js_commit(&self.tx, &js_entries)?).await?;
+        js_commit(&self.tx, &js_entries).await?;
 
         let (lock, cv) = &*self.pair;
         let state = cv

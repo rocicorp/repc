@@ -63,7 +63,7 @@ export function dbGet(tx, key) {
 /**
  * @param {IDBTransaction} tx
  * @param {string} key
- * @return {Promise<any>}
+ * @return {Promise<boolean>}
  */
 export async function dbHas(tx, key) {
   const c = await wrap(objectStore(tx).count(key));
