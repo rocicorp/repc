@@ -772,6 +772,23 @@ mod tests {
         );
 
         test(
+            vec![("a", "1"), ("b", "2"), ("c", "3")],
+            ScanOptions {
+                prefix: None,
+                start_secondary_key: None,
+                start_key: Some("b".into()),
+                start_exclusive: true.into(),
+                limit: None,
+                index_name: None,
+            },
+            vec![ScanItem {
+                key: b"c",
+                secondary_key: b"",
+                val: b"3",
+            }],
+        );
+
+        test(
             vec![
                 ("\u{0000}as\u{0000}ap", "1"),
                 ("\u{0000}bs\u{0000}bp", "2"),
@@ -802,6 +819,27 @@ mod tests {
         test(
             vec![
                 ("\u{0000}as\u{0000}ap", "1"),
+                ("\u{0000}bs\u{0000}bp", "2"),
+                ("\u{0000}cs\u{0000}cp", "3"),
+            ],
+            ScanOptions {
+                prefix: None,
+                start_secondary_key: Some("bs".into()),
+                start_key: None,
+                start_exclusive: true.into(),
+                limit: None,
+                index_name: Some("index".into()),
+            },
+            vec![ScanItem {
+                key: b"cp",
+                secondary_key: b"cs",
+                val: b"3",
+            }],
+        );
+
+        test(
+            vec![
+                ("\u{0000}as\u{0000}ap", "1"),
                 ("\u{0000}bs\u{0000}bp1", "2"),
                 ("\u{0000}bs\u{0000}bp2", "3"),
                 ("\u{0000}cs\u{0000}cp", "4"),
@@ -826,6 +864,28 @@ mod tests {
                     val: b"4",
                 },
             ],
+        );
+
+        test(
+            vec![
+                ("\u{0000}as\u{0000}ap", "1"),
+                ("\u{0000}bs\u{0000}bp1", "2"),
+                ("\u{0000}bs\u{0000}bp2", "3"),
+                ("\u{0000}cs\u{0000}cp", "4"),
+            ],
+            ScanOptions {
+                prefix: None,
+                start_secondary_key: Some("bs".into()),
+                start_key: Some("bp2".into()),
+                start_exclusive: true.into(),
+                limit: None,
+                index_name: Some("index".into()),
+            },
+            vec![ScanItem {
+                key: b"cp",
+                secondary_key: b"cs",
+                val: b"4",
+            }],
         );
     }
 }
