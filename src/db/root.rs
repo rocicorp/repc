@@ -28,6 +28,8 @@ pub enum GetRootError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::dag;
     use crate::db;
@@ -39,7 +41,7 @@ mod tests {
     async fn get_root() {
         async fn test(head_val: Option<String>, expected: Result<String, GetRootError>) {
             let kvs = MemStore::new();
-            let ds = dag::Store::new(Box::from(kvs));
+            let ds = dag::Store::new(Arc::new(kvs));
             if let Some(v) = head_val {
                 let dw = ds.write(LogContext::new()).await.unwrap();
                 dw.set_head(db::DEFAULT_HEAD_NAME, Some(&v)).await.unwrap();

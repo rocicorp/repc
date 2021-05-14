@@ -142,6 +142,8 @@ pub enum ScanError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::super::*;
     use super::*;
     use crate::dag;
@@ -153,7 +155,7 @@ mod tests {
 
     #[async_std::test]
     async fn basics() {
-        let ds = dag::Store::new(Box::new(MemStore::new()));
+        let ds = dag::Store::new(Arc::new(MemStore::new()));
         init_db(
             ds.write(LogContext::new()).await.unwrap(),
             db::DEFAULT_HEAD_NAME,
