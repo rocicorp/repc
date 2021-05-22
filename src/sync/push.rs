@@ -127,7 +127,6 @@ fn new_push_http_request(
 pub enum PushError {
     FetchFailed(FetchError),
     InvalidRequest(http::Error),
-    InvalidResponse(serde_json::error::Error),
     SerializePushError(serde_json::error::Error),
 }
 
