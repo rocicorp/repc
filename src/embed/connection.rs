@@ -21,7 +21,7 @@ lazy_static! {
 }
 
 #[allow(clippy::large_enum_variant)]
-enum Transaction<'a> {
+pub enum Transaction<'a> {
     Read(db::OwnedRead<'a>),
     Write(db::Write<'a>),
 }
@@ -35,7 +35,7 @@ impl<'a> Transaction<'a> {
     }
 }
 
-type TransactionsMap<'a> = RwLock<HashMap<u32, RwLock<Transaction<'a>>>>;
+pub type TransactionsMap<'a> = RwLock<HashMap<u32, RwLock<Transaction<'a>>>>;
 
 fn from_js<T: serde::de::DeserializeOwned>(data: JsValue) -> Result<T, JsValue> {
     serde_wasm_bindgen::from_value(data).map_err(JsValue::from)
@@ -283,7 +283,7 @@ pub enum DoInitError {
     InitDBError(db::InitDBError),
 }
 
-async fn do_init(store: &dag::Store, lc: LogContext) -> Result<(), DoInitError> {
+pub async fn do_init(store: &dag::Store, lc: LogContext) -> Result<(), DoInitError> {
     use DoInitError::*;
     let dw = store.write(lc).await.map_err(WriteError)?;
     if dw
@@ -395,7 +395,7 @@ async fn do_open_index_transaction<'a, 'b>(
     })
 }
 
-async fn validate_rebase<'a>(
+pub async fn validate_rebase<'a>(
     opts: &'a RebaseOpts,
     dag_read: dag::Read<'_>,
     mutator_name: &'a str,
@@ -726,7 +726,7 @@ enum GetRootError {
 
 #[derive(Debug)]
 #[allow(clippy::enum_variant_names)]
-enum OpenTransactionError {
+pub enum OpenTransactionError {
     ArgsRequired,
     DagWriteError(dag::Error),
     DagReadError(dag::Error),
@@ -739,6 +739,12 @@ enum OpenTransactionError {
     NoSuchBasis(db::ReadCommitError),
     NoSuchOriginal(db::ReadCommitError),
     WrongSyncHeadJSLogInfo(String), // "JSLogInfo" is a signal to bindings to not log this alarmingly.
+}
+
+impl From<OpenTransactionError> for js_sys::Error {
+    fn from(e: OpenTransactionError) -> Self {
+        js_sys::Error::new(&to_debug(e))
+    }
 }
 
 #[derive(Debug)]
