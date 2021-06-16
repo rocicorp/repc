@@ -10,6 +10,7 @@ use crate::db::{Commit, MetaTyped, Whence, DEFAULT_HEAD_NAME};
 use crate::fetch;
 use crate::fetch::errors::FetchError;
 use crate::prolly;
+use crate::to_js::ToJsValue;
 use crate::util::rlog;
 use crate::util::rlog::LogContext;
 use crate::{
@@ -350,6 +351,15 @@ pub enum ChangedKeysError {
     InvalidUtf8(FromUtf8Error),
 }
 
+impl ToJsValue for ChangedKeysError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            ChangedKeysError::GetMapError(e) => e.to_js(),
+            ChangedKeysError::InvalidUtf8(_) => None,
+        }
+    }
+}
+
 async fn add_changed_keys_for_indexes<'a>(
     main_snapshot: &'a Commit,
     sync_head: &'a Commit,
@@ -612,6 +622,21 @@ impl Puller for JsPuller {
             call_js_request::<Body, Result, PullError>(&self.puller, url, body, auth, request_id)
                 .await?;
         Ok((res.response, res.http_request_info))
+    }
+}
+
+impl ToJsValue for PullError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            PullError::FetchFailed(e) => e.to_js(),
+            PullError::InvalidRequest(_) => None,
+            PullError::InvalidResponse(_) => None,
+            PullError::SerializeRequestError(_) => None,
+            PullError::InvalidRequestJson(_) => None,
+            // TODO(arv): There is a `impl From<Error> for JsValue` but no `impl From<&Error> for &JsValue`. Why is Rust so weird?
+            PullError::InvalidResponseJson(_) => None,
+            PullError::JsError(v) => Some(v),
+        }
     }
 }
 

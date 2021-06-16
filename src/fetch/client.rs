@@ -50,14 +50,11 @@ impl Client {
             .method(parts.method.as_str())
             .uri(&parts.uri.to_string());
         for (k, v) in parts.headers.iter() {
-            builder = builder.header(
-                k,
-                v.to_str().map_err(|e| InvalidRequestHeader(to_debug(e)))?,
-            );
+            builder = builder.header(k, v.to_str().map_err(InvalidRequestHeader)?);
         }
         let hyper_req = builder
             .body(hyper::Body::from(req_body))
-            .map_err(|e| InvalidRequestBody(to_debug(e)))?;
+            .map_err(InvalidRequestBody)?;
 
         let mut hyper_resp = self
             .hyper_client
@@ -68,13 +65,12 @@ impl Client {
         let http_resp_bytes = hyper::body::to_bytes(hyper_resp.body_mut())
             .await
             .map_err(|e| ErrorReadingResponseBody(to_debug(e)))?;
-        let http_resp_string =
-            String::from_utf8(http_resp_bytes.to_vec()) // Copies :(
-                .map_err(|e| ErrorReadingResponseBodyAsString(to_debug(e)))?;
+        let http_resp_string = String::from_utf8(http_resp_bytes.to_vec()) // Copies :(
+            .map_err(ErrorReadingResponseBodyAsString)?;
         let http_resp = http_resp_builder
             .status(hyper_resp.status())
             .body(http_resp_string)
-            .map_err(|e| FailedToWrapHttpResponse(to_debug(e)))?;
+            .map_err(FailedToWrapHttpResponse)?;
         Ok(http_resp)
     }
 }

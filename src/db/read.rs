@@ -2,8 +2,10 @@ use super::commit::{Commit, FromHashError};
 use super::index;
 use crate::dag;
 use crate::prolly;
+use crate::to_js::ToJsValue;
 use std::collections::hash_map::HashMap;
 use std::convert::TryInto;
+use wasm_bindgen::JsValue;
 
 #[derive(Debug)]
 pub enum Whence {
@@ -24,6 +26,17 @@ pub enum ReadCommitError {
     GetHeadError(dag::Error),
     MapLoadError(prolly::LoadError),
     UnknownHead(String),
+}
+
+impl ToJsValue for ReadCommitError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            ReadCommitError::CommitFromHeadError(e) => e.to_js(),
+            ReadCommitError::GetHeadError(e) => e.to_js(),
+            ReadCommitError::MapLoadError(e) => e.to_js(),
+            ReadCommitError::UnknownHead(_) => None,
+        }
+    }
 }
 
 impl<'a> OwnedRead<'a> {
@@ -138,6 +151,16 @@ pub enum ScanError {
     GetMapError(index::GetMapError),
     ScanOptionsError(super::scan::ScanOptionsError),
     UnknownIndexName(String),
+}
+
+impl ToJsValue for ScanError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            ScanError::GetMapError(e) => e.to_js(),
+            ScanError::ScanOptionsError(e) => e.to_js(),
+            ScanError::UnknownIndexName(_) => None,
+        }
+    }
 }
 
 #[cfg(test)]

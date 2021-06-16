@@ -3,6 +3,7 @@ use crate::{
     dag,
     db::{self, ChangedKeysMap},
     prolly,
+    to_js::ToJsValue,
 };
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsValue;
@@ -101,6 +102,20 @@ pub enum TryPushError {
     ReadError(dag::Error),
 }
 
+impl ToJsValue for TryPushError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            TryPushError::GetHeadError(e) => e.to_js(),
+            TryPushError::InternalGetPendingCommitsError(e) => e.to_js(),
+            TryPushError::InternalNoMainHeadError => None,
+            TryPushError::InternalNonLocalPendingCommit => None,
+            TryPushError::PushFailed(e) => e.to_js(),
+            TryPushError::ReadError(e) => e.to_js(),
+            TryPushError::InvalidPusher(v) => Some(v),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum BeginTryPullError {
     CommitError(db::CommitError),
@@ -121,6 +136,31 @@ pub enum BeginTryPullError {
     ReadCommitError(db::ReadCommitError),
     ReadError(dag::Error),
     TimeTravelProhibited(String),
+}
+
+impl ToJsValue for BeginTryPullError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            BeginTryPullError::CommitError(e) => e.to_js(),
+            BeginTryPullError::GetHeadError(e) => e.to_js(),
+            BeginTryPullError::InternalGetChainError(e) => e.to_js(),
+            BeginTryPullError::InternalInvalidChainError => None,
+            BeginTryPullError::InternalNoMainHeadError => None,
+            BeginTryPullError::InternalProgrammerError(e) => e.to_js(),
+            BeginTryPullError::InternalRebuildIndexError(e) => e.to_js(),
+            BeginTryPullError::InvalidBaseSnapshotCookie(_) => None,
+            BeginTryPullError::LockError(e) => e.to_js(),
+            BeginTryPullError::MainHeadDisappeared => None,
+            BeginTryPullError::NoBaseSnapshot(e) => e.to_js(),
+            BeginTryPullError::OverlappingSyncsJSLogInfo => None,
+            BeginTryPullError::PatchFailed(e) => e.to_js(),
+            BeginTryPullError::PullFailed(e) => e.to_js(),
+            BeginTryPullError::ReadCommitError(e) => e.to_js(),
+            BeginTryPullError::ReadError(e) => e.to_js(),
+            BeginTryPullError::TimeTravelProhibited(_) => None,
+            BeginTryPullError::InvalidPuller(v) => Some(v),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -145,4 +185,31 @@ pub enum MaybeEndTryPullError {
     WriteDefaultHeadError(dag::Error),
     WriteSyncHeadError(dag::Error),
     WrongSyncHeadJSLogInfo, // "JSLogInfo" is a signal to bindings to not log this alarmingly.
+}
+
+impl ToJsValue for MaybeEndTryPullError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            MaybeEndTryPullError::ChangedKeysError(e) => e.to_js(),
+            MaybeEndTryPullError::CommitError(e) => e.to_js(),
+            MaybeEndTryPullError::GetMainHeadError(e) => e.to_js(),
+            MaybeEndTryPullError::GetSyncHeadError(e) => e.to_js(),
+            MaybeEndTryPullError::InternalArgsUtf8Error(_) => None,
+            MaybeEndTryPullError::InternalProgrammerError(_) => None,
+            MaybeEndTryPullError::InvalidUtf8(_) => None,
+            MaybeEndTryPullError::LoadHeadError(e) => e.to_js(),
+            MaybeEndTryPullError::LoadSyncHeadError(e) => e.to_js(),
+            MaybeEndTryPullError::MissingMainHead => None,
+            MaybeEndTryPullError::MissingSyncHead => None,
+            MaybeEndTryPullError::NoBaseSnapshot(e) => e.to_js(),
+            MaybeEndTryPullError::OpenWriteTxWriteError(e) => e.to_js(),
+            MaybeEndTryPullError::OverlappingSyncsJSLogInfo => None,
+            MaybeEndTryPullError::PendingError(e) => e.to_js(),
+            MaybeEndTryPullError::ReadCommitError(e) => e.to_js(),
+            MaybeEndTryPullError::SyncSnapshotWithNoBasis => None,
+            MaybeEndTryPullError::WriteDefaultHeadError(e) => e.to_js(),
+            MaybeEndTryPullError::WriteSyncHeadError(e) => e.to_js(),
+            MaybeEndTryPullError::WrongSyncHeadJSLogInfo => None,
+        }
+    }
 }

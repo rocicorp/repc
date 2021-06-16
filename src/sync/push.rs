@@ -3,6 +3,7 @@ use super::{HttpRequestInfo, TryPushError, TryPushRequest};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::fetch;
 use crate::fetch::errors::FetchError;
+use crate::to_js::ToJsValue;
 use crate::util::rlog;
 use crate::{dag, db, util::rlog::LogContext};
 use async_trait::async_trait;
@@ -224,6 +225,19 @@ impl From<JsValue> for PushError {
 impl From<serde_wasm_bindgen::Error> for PushError {
     fn from(e: serde_wasm_bindgen::Error) -> Self {
         PushError::InvalidResponseJson(e)
+    }
+}
+
+impl ToJsValue for PushError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            PushError::FetchFailed(e) => e.to_js(),
+            PushError::InvalidRequest(_) => None,
+            PushError::SerializePushError(_) => None,
+            // TODO(arv): There is a `impl From<Error> for JsValue` but no `impl From<&Error> for &JsValue`. Why is Rust so weird?
+            PushError::InvalidResponseJson(_) => None,
+            PushError::JsError(v) => Some(v),
+        }
     }
 }
 

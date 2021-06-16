@@ -1,9 +1,11 @@
 use super::commit;
 use crate::dag;
 use crate::prolly;
+use crate::to_js::ToJsValue;
 use async_std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use wasm_bindgen::JsValue;
 
 #[derive(Debug)]
 pub struct Index {
@@ -83,9 +85,25 @@ pub enum GetMapError {
     MapLoadError(prolly::LoadError),
 }
 
+impl ToJsValue for GetMapError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            GetMapError::MapLoadError(e) => e.to_js(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum IndexFlushError {
     MapFlushError(prolly::FlushError),
+}
+
+impl ToJsValue for IndexFlushError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            IndexFlushError::MapFlushError(e) => e.to_js(),
+        }
+    }
 }
 
 // IndexKey is the key used in the index prolly map for indexed values. It
@@ -106,6 +124,14 @@ pub enum IndexOperation {
 #[derive(Debug, PartialEq)]
 pub enum IndexValueError {
     GetIndexKeysError(GetIndexKeysError),
+}
+
+impl ToJsValue for IndexValueError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            IndexValueError::GetIndexKeysError(e) => e.to_js(),
+        }
+    }
 }
 
 // Index or de-index a single primary entry.
@@ -132,6 +158,17 @@ pub enum GetIndexKeysError {
     NoValueAtPath(String),
     SecondaryKeyContainsNull(String),
     UnsupportedTargetType,
+}
+
+impl ToJsValue for GetIndexKeysError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            GetIndexKeysError::DeserializeError(_) => None,
+            GetIndexKeysError::NoValueAtPath(_) => None,
+            GetIndexKeysError::SecondaryKeyContainsNull(_) => None,
+            GetIndexKeysError::UnsupportedTargetType => None,
+        }
+    }
 }
 
 // Gets the set of index keys for a given primary key and value.
@@ -287,6 +324,15 @@ pub fn decode_index_key(encoded_index_key: &[u8]) -> Result<IndexKey, DecodeInde
 pub enum DecodeIndexKeyError {
     InvalidFormatting(Vec<u8>),
     InvalidVersion,
+}
+
+impl ToJsValue for DecodeIndexKeyError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            DecodeIndexKeyError::InvalidFormatting(_) => None,
+            DecodeIndexKeyError::InvalidVersion => None,
+        }
+    }
 }
 
 #[cfg(test)]

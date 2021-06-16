@@ -32,5 +32,7 @@ mod kv;
 
 mod prolly;
 
+pub mod to_js;
+
 #[cfg(feature = "benchmark")]
 pub mod benches;

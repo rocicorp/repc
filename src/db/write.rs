@@ -2,10 +2,12 @@ use super::index::GetMapError;
 use super::{commit, index, read, scan, ReadCommitError, Whence};
 use crate::dag;
 use crate::prolly;
+use crate::to_js::ToJsValue;
 use crate::util::rlog;
 use std::collections::HashMap;
 use std::string::FromUtf8Error;
 use str_macro::str;
+use wasm_bindgen::JsValue;
 
 #[allow(dead_code)]
 enum Meta {
@@ -473,10 +475,30 @@ pub enum CreateIndexError {
     NotAllowed,
 }
 
+impl ToJsValue for CreateIndexError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            CreateIndexError::FlushError(e) => e.to_js(),
+            CreateIndexError::IndexError((_, _, _, e)) => e.to_js(),
+            CreateIndexError::IndexExistsWithDifferentDefinition => None,
+            CreateIndexError::NotAllowed => None,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum DropIndexError {
     NoSuchIndexError(String),
     NotAllowed,
+}
+
+impl ToJsValue for DropIndexError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            DropIndexError::NoSuchIndexError(_) => None,
+            DropIndexError::NotAllowed => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -494,11 +516,39 @@ pub enum CommitError {
     SerializeCookieError(serde_json::error::Error),
 }
 
+impl ToJsValue for CommitError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            CommitError::DagPutChunkError(e) => e.to_js(),
+            CommitError::DagSetHeadError(e) => e.to_js(),
+            CommitError::DagCommitError(e) => e.to_js(),
+            CommitError::FlushError(e) => e.to_js(),
+            CommitError::GetMapError(e) => e.to_js(),
+            CommitError::IndexChangeMustNotChangeMutationID => None,
+            CommitError::IndexChangeMustNotChangeValueHash => None,
+            CommitError::IndexFlushError(e) => e.to_js(),
+            CommitError::InvalidUtf8(_) => None,
+            CommitError::SerializeArgsError(_) => None,
+            CommitError::SerializeCookieError(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum PutError {
     AddNewIndexEntriesError(UpdateIndexesError),
     NotAllowed,
     RemoveOldIndexEntriesError(UpdateIndexesError),
+}
+
+impl ToJsValue for PutError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            PutError::AddNewIndexEntriesError(e) => e.to_js(),
+            PutError::NotAllowed => None,
+            PutError::RemoveOldIndexEntriesError(e) => e.to_js(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -507,16 +557,43 @@ pub enum DelError {
     UpdateIndexesError(UpdateIndexesError),
 }
 
+impl ToJsValue for DelError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            DelError::NotAllowed => None,
+            DelError::UpdateIndexesError(e) => e.to_js(),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum UpdateIndexesError {
     GetMapError(index::GetMapError),
     IndexValueError(index::IndexValueError),
 }
 
+impl ToJsValue for UpdateIndexesError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            UpdateIndexesError::GetMapError(e) => e.to_js(),
+            UpdateIndexesError::IndexValueError(e) => e.to_js(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum ClearError {
     GetMapError(index::GetMapError),
     NotAllowed,
+}
+
+impl ToJsValue for ClearError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            ClearError::GetMapError(e) => e.to_js(),
+            ClearError::NotAllowed => None,
+        }
+    }
 }
 
 #[cfg(test)]

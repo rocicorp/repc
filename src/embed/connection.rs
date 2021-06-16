@@ -4,6 +4,7 @@ use crate::dag;
 use crate::db;
 use crate::sync;
 use crate::sync::JsPusher;
+use crate::to_js::ToJsValue;
 use crate::util::rlog;
 use crate::util::rlog::LogContext;
 use crate::util::to_debug;
@@ -46,13 +47,23 @@ enum ToJsError {
     SerializeError(serde_wasm_bindgen::Error),
 }
 
-fn to_js<T: serde::Serialize, E: std::fmt::Debug>(res: Result<T, E>) -> Result<JsValue, JsValue> {
+fn to_js<T: serde::Serialize, E: std::fmt::Debug + ToJsValue>(
+    res: Result<T, E>,
+) -> Result<JsValue, JsValue> {
     use ToJsError::*;
     match res {
         Ok(v) => Ok(serde_wasm_bindgen::to_value(&v)
             .map_err(SerializeError)
             .map_err(to_debug)?),
-        Err(v) => Err(js_sys::Error::new(&to_debug(v)).into()),
+        Err(v) => {
+            let js_err: JsValue = js_sys::Error::new(&to_debug(&v)).into();
+            if let Some(v) = v.to_js() {
+                let v = v.clone();
+                // Add the cause property: https://github.com/tc39/proposal-error-cause
+                js_sys::Reflect::set(&js_err, &JsValue::from_str("cause"), &v)?;
+            }
+            Err(js_err)
+        }
     }
 }
 
@@ -510,13 +521,13 @@ async fn do_get_root<'a, 'b>(
     })
 }
 
-async fn do_has(txn: db::Read<'_>, req: HasRequest) -> Result<HasResponse, ()> {
+async fn do_has(txn: db::Read<'_>, req: HasRequest) -> Result<HasResponse, HasError> {
     Ok(HasResponse {
         has: txn.has(req.key.as_bytes()),
     })
 }
 
-async fn do_get(read: db::Read<'_>, req: GetRequest) -> Result<GetResponse, String> {
+async fn do_get(read: db::Read<'_>, req: GetRequest) -> Result<GetResponse, GetError> {
     #[cfg(not(default))] // Not enabled in production.
     if req.key.starts_with("sleep") {
         use async_std::task::sleep;
@@ -577,7 +588,7 @@ async fn do_get(read: db::Read<'_>, req: GetRequest) -> Result<GetResponse, Stri
         .get(req.key.as_bytes())
         .map(|buf| String::from_utf8(buf.to_vec()));
     if let Some(Err(e)) = got {
-        return Err(to_debug(e));
+        return Err(GetError::Utf8Error(e));
     }
     let got = got.map(|r| r.unwrap());
     Ok(GetResponse {
@@ -724,6 +735,14 @@ enum GetRootError {
     DBError(db::GetRootError),
 }
 
+impl ToJsValue for GetRootError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            GetRootError::DBError(e) => e.to_js(),
+        }
+    }
+}
+
 #[derive(Debug)]
 #[allow(clippy::enum_variant_names)]
 enum OpenTransactionError {
@@ -741,6 +760,25 @@ enum OpenTransactionError {
     WrongSyncHeadJSLogInfo(String), // "JSLogInfo" is a signal to bindings to not log this alarmingly.
 }
 
+impl ToJsValue for OpenTransactionError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            OpenTransactionError::ArgsRequired => None,
+            OpenTransactionError::DagWriteError(e) => e.to_js(),
+            OpenTransactionError::DagReadError(e) => e.to_js(),
+            OpenTransactionError::DBWriteError(e) => e.to_js(),
+            OpenTransactionError::DBReadError(e) => e.to_js(),
+            OpenTransactionError::GetHeadError(e) => e.to_js(),
+            OpenTransactionError::InconsistentMutationId(_) => None,
+            OpenTransactionError::InconsistentMutator(_) => None,
+            OpenTransactionError::InternalProgrammerError(_) => None,
+            OpenTransactionError::NoSuchBasis(e) => e.to_js(),
+            OpenTransactionError::NoSuchOriginal(e) => e.to_js(),
+            OpenTransactionError::WrongSyncHeadJSLogInfo(_) => None,
+        }
+    }
+}
+
 #[derive(Debug)]
 enum CommitTransactionError {
     CommitError(db::CommitError),
@@ -748,9 +786,27 @@ enum CommitTransactionError {
     UnknownTransaction,
 }
 
+impl ToJsValue for CommitTransactionError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            CommitTransactionError::CommitError(e) => e.to_js(),
+            CommitTransactionError::TransactionIsReadOnly => None,
+            CommitTransactionError::UnknownTransaction => None,
+        }
+    }
+}
+
 #[derive(Debug)]
 enum CloseTransactionError {
     UnknownTransaction,
+}
+
+impl ToJsValue for CloseTransactionError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            CloseTransactionError::UnknownTransaction => None,
+        }
+    }
 }
 
 // Note: dispatch is mostly tested in tests/wasm.rs.

@@ -22,17 +22,27 @@ mod read;
 mod store;
 mod write;
 
-use crate::kv;
+use crate::{kv, to_js::ToJsValue};
 pub use chunk::Chunk;
 pub use key::Key;
 pub use read::{OwnedRead, Read};
 pub use store::Store;
+use wasm_bindgen::JsValue;
 pub use write::Write;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
     Storage(kv::StoreError),
     CorruptStore(String),
+}
+
+impl ToJsValue for Error {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            Error::Storage(e) => e.to_js(),
+            Error::CorruptStore(_) => None,
+        }
+    }
 }
 
 impl From<kv::StoreError> for Error {

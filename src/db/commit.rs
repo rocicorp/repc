@@ -1,8 +1,9 @@
 use super::commit_generated::commit as commit_fb;
-use crate::dag;
+use crate::{dag, to_js::ToJsValue};
 use flatbuffers::FlatBufferBuilder;
 use std::collections::hash_set::HashSet;
 use str_macro::str;
+use wasm_bindgen::JsValue;
 
 pub const DEFAULT_HEAD_NAME: &str = "main";
 
@@ -413,11 +414,30 @@ pub enum BaseSnapshotError {
     NoSuchCommit(FromHashError),
 }
 
+impl ToJsValue for BaseSnapshotError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            BaseSnapshotError::NoBasis(_) => None,
+            BaseSnapshotError::NoSuchCommit(e) => e.to_js(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum WalkChainError {
     EndOfChainNotASnapshot(String),
     NoBasis(String),
     NoSuchCommit(FromHashError),
+}
+
+impl ToJsValue for WalkChainError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            WalkChainError::EndOfChainNotASnapshot(_) => None,
+            WalkChainError::NoBasis(_) => None,
+            WalkChainError::NoSuchCommit(e) => e.to_js(),
+        }
+    }
 }
 
 pub struct Meta<'a> {
@@ -539,11 +559,38 @@ pub enum LoadError {
     DuplicateIndexName(String),
 }
 
+impl ToJsValue for LoadError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            LoadError::InvalidCookieJson(_) => None,
+            LoadError::MissingCookie => None,
+            LoadError::MissingMutatorName => None,
+            LoadError::MissingMutatorArgsJson => None,
+            LoadError::MissingTyped => None,
+            LoadError::MissingMeta => None,
+            LoadError::MissingValueHash => None,
+            LoadError::UnknownMetaType => None,
+            LoadError::InvalidIndex((_, e)) => e.to_js(),
+            LoadError::DuplicateIndexName(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum ValidateIndexDefinitionError {
     MissingName,
     MissingKeyPrefix,
     MissingIndexPath,
+}
+
+impl ToJsValue for ValidateIndexDefinitionError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            ValidateIndexDefinitionError::MissingName => None,
+            ValidateIndexDefinitionError::MissingKeyPrefix => None,
+            ValidateIndexDefinitionError::MissingIndexPath => None,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -553,6 +600,16 @@ pub enum ValidateIndexError {
     MissingValueHash,
 }
 
+impl ToJsValue for ValidateIndexError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            ValidateIndexError::MissingDefinition => None,
+            ValidateIndexError::InvalidDefintion(e) => e.to_js(),
+            ValidateIndexError::MissingValueHash => None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum FromHashError {
     GetChunkFailed(dag::Error),
@@ -560,10 +617,29 @@ pub enum FromHashError {
     LoadCommitFailed(LoadError),
 }
 
+impl ToJsValue for FromHashError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            FromHashError::GetChunkFailed(e) => e.to_js(),
+            FromHashError::ChunkMissing(_) => None,
+            FromHashError::LoadCommitFailed(e) => e.to_js(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum InternalProgrammerError {
     InvalidCookieJson(serde_json::error::Error),
     WrongType(String),
+}
+
+impl ToJsValue for InternalProgrammerError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            InternalProgrammerError::InvalidCookieJson(_) => None,
+            InternalProgrammerError::WrongType(_) => None,
+        }
+    }
 }
 
 #[cfg(test)]

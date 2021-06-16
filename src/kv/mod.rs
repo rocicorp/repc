@@ -1,13 +1,22 @@
 pub mod idbstore;
 pub mod memstore;
 
-use crate::util::rlog::LogContext;
+use crate::{to_js::ToJsValue, util::rlog::LogContext};
 use async_trait::async_trait;
 use std::fmt;
+use wasm_bindgen::JsValue;
 
 #[derive(Debug, PartialEq)]
 pub enum StoreError {
     Str(String),
+}
+
+impl ToJsValue for StoreError {
+    fn to_js(&self) -> Option<&JsValue> {
+        match self {
+            StoreError::Str(_) => None,
+        }
+    }
 }
 
 impl fmt::Display for StoreError {
