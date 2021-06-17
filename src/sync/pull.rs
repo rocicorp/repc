@@ -22,6 +22,9 @@ use std::default::Default;
 use std::fmt::Debug;
 use std::{collections::HashMap, string::FromUtf8Error};
 use str_macro::str;
+use wasm_bindgen::JsCast;
+use wasm_bindgen::JsValue;
+use wasm_bindgen_futures::JsFuture;
 
 // Pull Versions
 // 0 (current): direct pull from data layer
@@ -433,7 +436,7 @@ pub trait Puller {
     async fn pull(
         &self,
         pull_req: &PullRequest,
-        ur: &str,
+        url: &str,
         auth: &str,
         request_id: &str,
     ) -> Result<(Option<PullResponse>, HttpRequestInfo), PullError>;
@@ -514,6 +517,83 @@ pub enum PullError {
     InvalidRequest(http::Error),
     InvalidResponse(serde_json::error::Error),
     SerializeRequestError(serde_json::error::Error),
+    JsError(JsValue),
+}
+
+impl From<JsValue> for PullError {
+    fn from(v: JsValue) -> Self {
+        PullError::JsError(v)
+    }
+}
+
+pub struct JsPuller {
+    puller: js_sys::Function,
+}
+
+impl JsPuller {
+    pub fn new(v: JsValue) -> Result<JsPuller, JsValue> {
+        let js_puller_value = js_sys::Reflect::get(&v, &JsValue::from_str("puller"))?;
+        let js_puller_func = js_puller_value.dyn_into()?;
+        Ok(JsPuller {
+            puller: js_puller_func,
+        })
+    }
+}
+
+#[derive(Serialize)]
+struct JsPullerArg<'a, 'b> {
+    #[serde(rename = "clientID")]
+    pub client_id: &'a str,
+    #[serde(default)]
+    pub cookie: &'b serde_json::Value,
+    #[serde(rename = "lastMutationID")]
+    pub last_mutation_id: u64,
+    #[serde(rename = "pullVersion")]
+    pub pull_version: u32,
+    // schema_version can optionally be used by the customer's app
+    // to indicate to the data layer what format of Client View the
+    // app understands.
+    #[serde(rename = "schemaVersion")]
+    pub schema_version: &'a str,
+
+    pub url: &'a str,
+    pub auth: &'a str,
+    #[serde(rename = "requestID")]
+    pub request_id: &'a str,
+}
+
+#[derive(Deserialize)]
+struct JsPullerResult {
+    response: Option<PullResponse>,
+    #[serde(rename = "httpRequestInfo")]
+    http_request_info: HttpRequestInfo,
+}
+
+#[async_trait(?Send)]
+impl Puller for JsPuller {
+    async fn pull(
+        &self,
+        pull_req: &PullRequest,
+        url: &str,
+        auth: &str,
+        request_id: &str,
+    ) -> Result<(Option<PullResponse>, HttpRequestInfo), PullError> {
+        let args = JsPullerArg {
+            client_id: &pull_req.client_id,
+            cookie: &pull_req.cookie,
+            last_mutation_id: pull_req.last_mutation_id,
+            pull_version: pull_req.pull_version,
+            schema_version: &pull_req.schema_version,
+            url,
+            auth,
+            request_id,
+        };
+        let v = serde_wasm_bindgen::to_value(&args).map_err(JsValue::from)?;
+        let p: js_sys::Promise = self.puller.call1(&JsValue::UNDEFINED, &v)?.dyn_into()?;
+        let js_res = JsFuture::from(p).await?;
+        let res: JsPullerResult = serde_wasm_bindgen::from_value(js_res).map_err(JsValue::from)?;
+        Ok((res.response, res.http_request_info))
+    }
 }
 
 #[cfg(test)]

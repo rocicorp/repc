@@ -4,7 +4,10 @@ use crate::{dag, db, util::rlog::LogContext};
 use crate::{fetch, util::rlog};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use serde_wasm_bindgen::Serializer;
 use str_macro::str;
+use wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen_futures::JsFuture;
 
 // Push Versions
 // 0 (current): direct push to data layer
@@ -103,6 +106,74 @@ impl Pusher for FetchPusher<'_> {
     }
 }
 
+pub struct JsPusher {
+    pusher: js_sys::Function,
+}
+
+impl JsPusher {
+    pub fn new(v: JsValue) -> Result<JsPusher, JsValue> {
+        let js_val = js_sys::Reflect::get(&v, &JsValue::from_str("pusher"))?;
+        let js_func = js_val.dyn_into()?;
+        Ok(JsPusher { pusher: js_func })
+    }
+}
+
+#[derive(Serialize)]
+struct JsPusherArg<'a> {
+    #[serde(rename = "clientID")]
+    pub client_id: &'a str,
+    pub mutations: &'a Vec<Mutation>,
+    #[serde(rename = "pushVersion")]
+    pub push_version: u32,
+    // schema_version can optionally be used to specify to the push endpoint
+    // version information about the mutators the app is using (e.g., format
+    // of mutator args).
+    #[serde(rename = "schemaVersion")]
+    pub schema_version: &'a str,
+
+    pub url: &'a str,
+    pub auth: &'a str,
+    #[serde(rename = "requestID")]
+    pub request_id: &'a str,
+}
+
+#[async_trait(?Send)]
+impl Pusher for JsPusher {
+    async fn push(
+        &self,
+        push_req: &PushRequest,
+        url: &str,
+        auth: &str,
+        request_id: &str,
+    ) -> Result<HttpRequestInfo, PushError> {
+        let PushRequest {
+            client_id,
+            mutations,
+            push_version,
+            schema_version,
+        } = push_req;
+        let args = JsPusherArg {
+            client_id,
+            mutations,
+            push_version: *push_version,
+            schema_version,
+            url,
+            auth,
+            request_id,
+        };
+
+        // Need to use serialize_maps_as_objects or we end up with a JS Map
+        // instead of a JS Object.
+        let serializer = Serializer::new().serialize_maps_as_objects(true);
+        let v = args.serialize(&serializer).map_err(JsValue::from)?;
+        let p: js_sys::Promise = self.pusher.call1(&JsValue::UNDEFINED, &v)?.dyn_into()?;
+        let js_res = JsFuture::from(p).await?;
+
+        let res: HttpRequestInfo = serde_wasm_bindgen::from_value(js_res).map_err(JsValue::from)?;
+        Ok(res)
+    }
+}
+
 fn new_push_http_request(
     push_req: &PushRequest,
     push_url: &str,
@@ -128,6 +199,13 @@ pub enum PushError {
     FetchFailed(FetchError),
     InvalidRequest(http::Error),
     SerializePushError(serde_json::error::Error),
+    JsError(JsValue),
+}
+
+impl From<JsValue> for PushError {
+    fn from(v: JsValue) -> Self {
+        PushError::JsError(v)
+    }
 }
 
 pub async fn push(
