@@ -5,6 +5,7 @@ use super::types::*;
 use super::SYNC_HEAD_NAME;
 use crate::dag;
 use crate::db::{Commit, MetaTyped, Whence, DEFAULT_HEAD_NAME};
+#[cfg(not(target_arch = "wasm32"))]
 use crate::fetch;
 use crate::fetch::errors::FetchError;
 use crate::prolly;
@@ -442,16 +443,19 @@ pub trait Puller {
     ) -> Result<(Option<PullResponse>, HttpRequestInfo), PullError>;
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub struct FetchPuller<'a> {
     fetch_client: &'a fetch::client::Client,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl FetchPuller<'_> {
     pub fn new(fetch_client: &fetch::client::Client) -> FetchPuller {
         FetchPuller { fetch_client }
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[async_trait(?Send)]
 impl Puller for FetchPuller<'_> {
     // A failed HTTP response (non 200) is not an error. In that case we get
@@ -491,6 +495,7 @@ impl Puller for FetchPuller<'_> {
 }
 
 // Pulled into a helper fn because we use it integration tests.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn new_pull_http_request(
     pull_req: &PullRequest,
     url: &str,
@@ -541,11 +546,11 @@ impl JsPuller {
 }
 
 #[derive(Serialize)]
-struct JsPullerArg<'a, 'b> {
+struct JsPullerArg<'a> {
     #[serde(rename = "clientID")]
     pub client_id: &'a str,
     #[serde(default)]
-    pub cookie: &'b serde_json::Value,
+    pub cookie: &'a serde_json::Value,
     #[serde(rename = "lastMutationID")]
     pub last_mutation_id: u64,
     #[serde(rename = "pullVersion")]

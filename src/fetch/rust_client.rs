@@ -33,15 +33,6 @@ impl Client {
     // The response returned will have the status and body set but not the headers,
     // but only because we haven't writtent that code. Non-200 status code does not
     // constitute an Err Result.
-    //     _ _   ____  ________          __     _____  ______   _ _
-    //    | | | |  _ \|  ____\ \        / /\   |  __ \|  ____| | | |
-    //    | | | | |_) | |__   \ \  /\  / /  \  | |__) | |__    | | |
-    //    | | | |  _ <|  __|   \ \/  \/ / /\ \ |  _  /|  __|   | | |
-    //    |_|_| | |_) | |____   \  /\  / ____ \| | \ \| |____  |_|_|
-    //    (_|_) |____/|______|   \/  \/_/    \_\_|  \_\______| (_|_)
-    //
-    // IF YOU CHANGE THE BEHAVIOR OR CAPABILITIES OF THIS FUNCTION please be sure to reflect
-    // the same changes into the browser client.
     //
     // TODO log req/resp
     pub async fn request(

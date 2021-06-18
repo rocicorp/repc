@@ -1,10 +1,13 @@
 use super::{HttpRequestInfo, TryPushError, TryPushRequest};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::fetch;
 use crate::fetch::errors::FetchError;
+use crate::util::rlog;
 use crate::{dag, db, util::rlog::LogContext};
-use crate::{fetch, util::rlog};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_wasm_bindgen::Serializer;
+#[cfg(not(target_arch = "wasm32"))]
 use str_macro::str;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
@@ -59,10 +62,12 @@ pub trait Pusher {
     ) -> Result<HttpRequestInfo, PushError>;
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub struct FetchPusher<'a> {
     fetch_client: &'a fetch::client::Client,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl FetchPusher<'_> {
     pub fn new(fetch_client: &fetch::client::Client) -> FetchPusher {
         FetchPusher { fetch_client }
@@ -73,6 +78,7 @@ impl FetchPusher<'_> {
 // modulo the request and response types (and error names). We should probably replace both
 // with a generic JsonFetcher<Req, Resp> that provides something like
 // fetch(url, headers, req: Req) -> Result<Resp, JsonFetchError>.
+#[cfg(not(target_arch = "wasm32"))]
 #[async_trait(?Send)]
 impl Pusher for FetchPusher<'_> {
     // A failed HTTP response (non 200) is not an error. In that case we get
@@ -174,6 +180,7 @@ impl Pusher for JsPusher {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn new_push_http_request(
     push_req: &PushRequest,
     push_url: &str,

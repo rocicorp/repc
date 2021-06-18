@@ -4,7 +4,6 @@ use futures::join;
 use rand::Rng;
 use regex::Regex;
 use replicache_client::embed::types::*;
-use replicache_client::sync;
 use replicache_client::util::rlog;
 use replicache_client::util::to_debug;
 use replicache_client::util::wasm::performance_now;
@@ -1446,35 +1445,6 @@ fn test_browser_timer() {
     let timer = rlog::Timer::new();
     // Sleep is a PITA so we'll leave it at "it doesn't error".
     timer.elapsed_ms();
-}
-
-// We can't run a web server in wasm-in-the-browser so this is the next
-// best thing: a manual test that FETCHES OVER THE NETWORK. To run it:
-// 1. uncomment the #[wasm_bindgen_test] line
-// 2. wasm-pack test --chrome -- --test wasm
-// 3. open developer tools in a browser window
-// 4. navigate to 127.0.0.1:8000
-// 5. verify the request and response by inspection:
-//     - method
-//     - http headers
-//     - outgoing and incoming body
-//
-//#[wasm_bindgen_test]
-#[allow(dead_code)]
-async fn test_browser_fetch() {
-    let pull_req = sync::PullRequest {
-        ..Default::default()
-    };
-    let http_req = sync::new_pull_http_request(
-        &pull_req,
-        "https://account-service.rocicorp.now.sh/api/hello",
-        "auth",
-        "request_id",
-    )
-    .unwrap();
-    let client = fetch::client::Client::new();
-    let resp = client.request(http_req).await.unwrap();
-    assert!(resp.body().contains("Well hello to you"));
 }
 
 // See note above about wasm fetch tests.
