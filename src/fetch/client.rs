@@ -1,11 +1,10 @@
 use crate::fetch::errors::FetchError;
 use crate::fetch::errors::FetchError::*;
 use crate::fetch::timeout::with_timeout;
+use crate::fetch::tokio_compat;
 use crate::util::to_debug;
 use http::Request;
 use std::time::Duration;
-
-mod tokio_compat;
 
 pub struct Client {
     hyper_client: hyper::Client<tokio_compat::AsyncStdTcpConnector>,
