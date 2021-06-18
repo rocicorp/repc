@@ -125,7 +125,15 @@ impl JsPusher {
 }
 
 #[derive(Serialize)]
-struct JsPusherArg<'a> {
+struct JsPusherArgs<'a> {
+    pub url: &'a str,
+    pub auth: &'a str,
+    #[serde(rename = "requestID")]
+    pub request_id: &'a str,
+}
+
+#[derive(Serialize)]
+struct JsPusherBody<'a> {
     #[serde(rename = "clientID")]
     pub client_id: &'a str,
     pub mutations: &'a Vec<Mutation>,
@@ -136,11 +144,6 @@ struct JsPusherArg<'a> {
     // of mutator args).
     #[serde(rename = "schemaVersion")]
     pub schema_version: &'a str,
-
-    pub url: &'a str,
-    pub auth: &'a str,
-    #[serde(rename = "requestID")]
-    pub request_id: &'a str,
 }
 
 #[async_trait(?Send)]
@@ -158,21 +161,27 @@ impl Pusher for JsPusher {
             push_version,
             schema_version,
         } = push_req;
-        let args = JsPusherArg {
+        let args = JsPusherArgs {
+            url,
+            auth,
+            request_id,
+        };
+        let body = JsPusherBody {
             client_id,
             mutations,
             push_version: *push_version,
             schema_version,
-            url,
-            auth,
-            request_id,
         };
 
         // Need to use serialize_maps_as_objects or we end up with a JS Map
         // instead of a JS Object.
         let serializer = Serializer::new().serialize_maps_as_objects(true);
-        let v = args.serialize(&serializer).map_err(JsValue::from)?;
-        let p: js_sys::Promise = self.pusher.call1(&JsValue::UNDEFINED, &v)?.dyn_into()?;
+        let js_arg = args.serialize(&serializer).map_err(JsValue::from)?;
+        let js_body = body.serialize(&serializer).map_err(JsValue::from)?;
+        let p: js_sys::Promise = self
+            .pusher
+            .call2(&JsValue::UNDEFINED, &js_arg, &js_body)?
+            .dyn_into()?;
         let js_res = JsFuture::from(p).await?;
 
         let res: HttpRequestInfo = serde_wasm_bindgen::from_value(js_res).map_err(JsValue::from)?;

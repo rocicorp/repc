@@ -546,25 +546,28 @@ impl JsPuller {
 }
 
 #[derive(Serialize)]
-struct JsPullerArg<'a> {
+struct JsPullerArgs<'a> {
+    pub url: &'a str,
+    pub auth: &'a str,
+    #[serde(rename = "requestID")]
+    pub request_id: &'a str,
+}
+
+#[derive(Serialize)]
+struct JsPullerBody<'a> {
     #[serde(rename = "clientID")]
     pub client_id: &'a str,
     #[serde(default)]
     pub cookie: &'a serde_json::Value,
     #[serde(rename = "lastMutationID")]
-    pub last_mutation_id: u64,
+    pub last_mutation_id: &'a u64,
     #[serde(rename = "pullVersion")]
-    pub pull_version: u32,
+    pub pull_version: &'a u32,
     // schema_version can optionally be used by the customer's app
     // to indicate to the data layer what format of Client View the
     // app understands.
     #[serde(rename = "schemaVersion")]
     pub schema_version: &'a str,
-
-    pub url: &'a str,
-    pub auth: &'a str,
-    #[serde(rename = "requestID")]
-    pub request_id: &'a str,
 }
 
 #[derive(Deserialize)]
@@ -583,18 +586,31 @@ impl Puller for JsPuller {
         auth: &str,
         request_id: &str,
     ) -> Result<(Option<PullResponse>, HttpRequestInfo), PullError> {
-        let args = JsPullerArg {
-            client_id: &pull_req.client_id,
-            cookie: &pull_req.cookie,
-            last_mutation_id: pull_req.last_mutation_id,
-            pull_version: pull_req.pull_version,
-            schema_version: &pull_req.schema_version,
+        let PullRequest {
+            client_id,
+            cookie,
+            last_mutation_id,
+            pull_version,
+            schema_version,
+        } = pull_req;
+        let args = JsPullerArgs {
             url,
             auth,
             request_id,
         };
-        let v = serde_wasm_bindgen::to_value(&args).map_err(JsValue::from)?;
-        let p: js_sys::Promise = self.puller.call1(&JsValue::UNDEFINED, &v)?.dyn_into()?;
+        let body = JsPullerBody {
+            client_id,
+            cookie,
+            last_mutation_id,
+            pull_version,
+            schema_version,
+        };
+        let js_args = serde_wasm_bindgen::to_value(&args).map_err(JsValue::from)?;
+        let js_body = serde_wasm_bindgen::to_value(&body).map_err(JsValue::from)?;
+        let p: js_sys::Promise = self
+            .puller
+            .call2(&JsValue::UNDEFINED, &js_args, &js_body)?
+            .dyn_into()?;
         let js_res = JsFuture::from(p).await?;
         let res: JsPullerResult = serde_wasm_bindgen::from_value(js_res).map_err(JsValue::from)?;
         Ok((res.response, res.http_request_info))
