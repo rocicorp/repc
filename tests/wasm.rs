@@ -5,12 +5,10 @@ use rand::Rng;
 use regex::Regex;
 use replicache_client::embed::types::*;
 use replicache_client::util::rlog;
-use replicache_client::util::to_debug;
+use replicache_client::util::uuid::make_random_numbers;
 use replicache_client::util::wasm::performance_now;
 use replicache_client::wasm;
 use replicache_client::{db::ScanOptions, embed::Rpc};
-#[allow(unused_imports)]
-use replicache_client::{fetch, util::uuid::make_random_numbers};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::json;
@@ -1445,22 +1443,6 @@ fn test_browser_timer() {
     let timer = rlog::Timer::new();
     // Sleep is a PITA so we'll leave it at "it doesn't error".
     timer.elapsed_ms();
-}
-
-// See note above about wasm fetch tests.
-//#[wasm_bindgen_test]
-#[allow(dead_code)]
-async fn test_browser_fetch_timeout() {
-    let req = http::request::Builder::new()
-        .method("GET")
-        .uri("https://yahoo.com/") // Safe bet it is slow as anything.
-        .body(str!(""))
-        .unwrap();
-
-    let mut client = fetch::client::Client::new();
-    client.timeout = std::time::Duration::from_millis(1);
-    let err = client.request(req).await.unwrap_err();
-    assert!(to_debug(err).contains("Timeout"));
 }
 
 #[wasm_bindgen_test]
