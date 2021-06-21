@@ -1,3 +1,4 @@
+use super::js_request::call_js_request;
 use super::{HttpRequestInfo, TryPushError, TryPushRequest};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::fetch;
@@ -6,11 +7,9 @@ use crate::util::rlog;
 use crate::{dag, db, util::rlog::LogContext};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_wasm_bindgen::Serializer;
 #[cfg(not(target_arch = "wasm32"))]
 use str_macro::str;
 use wasm_bindgen::{JsCast, JsValue};
-use wasm_bindgen_futures::JsFuture;
 
 // Push Versions
 // 0 (current): direct push to data layer
@@ -124,27 +123,13 @@ impl JsPusher {
     }
 }
 
-#[derive(Serialize)]
-struct JsPusherArgs<'a> {
-    pub url: &'a str,
-    pub auth: &'a str,
-    #[serde(rename = "requestID")]
-    pub request_id: &'a str,
-}
-
-#[derive(Serialize)]
-struct JsPusherBody<'a> {
-    #[serde(rename = "clientID")]
-    pub client_id: &'a str,
-    pub mutations: &'a Vec<Mutation>,
-    #[serde(rename = "pushVersion")]
-    pub push_version: u32,
-    // schema_version can optionally be used to specify to the push endpoint
-    // version information about the mutators the app is using (e.g., format
-    // of mutator args).
-    #[serde(rename = "schemaVersion")]
-    pub schema_version: &'a str,
-}
+// #[derive(Serialize)]
+// struct JsPusherArgs<'a> {
+//     pub url: &'a str,
+//     pub auth: &'a str,
+//     #[serde(rename = "requestID")]
+//     pub request_id: &'a str,
+// }
 
 #[async_trait(?Send)]
 impl Pusher for JsPusher {
@@ -161,31 +146,50 @@ impl Pusher for JsPusher {
             push_version,
             schema_version,
         } = push_req;
-        let args = JsPusherArgs {
-            url,
-            auth,
-            request_id,
-        };
-        let body = JsPusherBody {
+
+        #[derive(Serialize)]
+        struct Body<'a> {
+            #[serde(rename = "clientID")]
+            pub client_id: &'a str,
+            pub mutations: &'a Vec<Mutation>,
+            #[serde(rename = "pushVersion")]
+            pub push_version: u32,
+            // schema_version can optionally be used to specify to the push endpoint
+            // version information about the mutators the app is using (e.g., format
+            // of mutator args).
+            #[serde(rename = "schemaVersion")]
+            pub schema_version: &'a str,
+        }
+        let body = Body {
             client_id,
             mutations,
             push_version: *push_version,
             schema_version,
         };
 
-        // Need to use serialize_maps_as_objects or we end up with a JS Map
-        // instead of a JS Object.
-        let serializer = Serializer::new().serialize_maps_as_objects(true);
-        let js_arg = args.serialize(&serializer).map_err(JsValue::from)?;
-        let js_body = body.serialize(&serializer).map_err(JsValue::from)?;
-        let p: js_sys::Promise = self
-            .pusher
-            .call2(&JsValue::UNDEFINED, &js_arg, &js_body)?
-            .dyn_into()?;
-        let js_res = JsFuture::from(p).await?;
-
-        let res: HttpRequestInfo = serde_wasm_bindgen::from_value(js_res).map_err(JsValue::from)?;
+        let res = call_js_request::<Body, HttpRequestInfo, PushError>(
+            &self.pusher,
+            url,
+            body,
+            auth,
+            request_id,
+        )
+        .await?;
         Ok(res)
+
+        // // Need to use serialize_maps_as_objects or we end up with a JS Map
+        // // instead of a JS Object.
+        // let serializer = Serializer::new().serialize_maps_as_objects(true);
+        // let js_arg = args.serialize(&serializer).map_err(JsValue::from)?;
+        // let js_body = body.serialize(&serializer).map_err(JsValue::from)?;
+        // let p: js_sys::Promise = self
+        //     .pusher
+        //     .call2(&JsValue::UNDEFINED, &js_arg, &js_body)?
+        //     .dyn_into()?;
+        // let js_res = JsFuture::from(p).await?;
+
+        // let res: HttpRequestInfo = serde_wasm_bindgen::from_value(js_res).map_err(JsValue::from)?;
+        // Ok(res)
     }
 }
 
@@ -214,6 +218,7 @@ fn new_push_http_request(
 pub enum PushError {
     FetchFailed(FetchError),
     InvalidRequest(http::Error),
+    InvalidResponseJson(serde_wasm_bindgen::Error),
     SerializePushError(serde_json::error::Error),
     JsError(JsValue),
 }
@@ -221,6 +226,12 @@ pub enum PushError {
 impl From<JsValue> for PushError {
     fn from(v: JsValue) -> Self {
         PushError::JsError(v)
+    }
+}
+
+impl From<serde_wasm_bindgen::Error> for PushError {
+    fn from(e: serde_wasm_bindgen::Error) -> Self {
+        PushError::InvalidResponseJson(e)
     }
 }
 

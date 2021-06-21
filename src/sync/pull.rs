@@ -1,5 +1,6 @@
 #![allow(clippy::redundant_pattern_matching)] // For derive(Deserialize).
 
+use super::js_request::call_js_request;
 use super::patch;
 use super::types::*;
 use super::SYNC_HEAD_NAME;
@@ -23,9 +24,9 @@ use std::default::Default;
 use std::fmt::Debug;
 use std::{collections::HashMap, string::FromUtf8Error};
 use str_macro::str;
+use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
-use wasm_bindgen_futures::JsFuture;
 
 // Pull Versions
 // 0 (current): direct pull from data layer
@@ -520,7 +521,9 @@ pub fn new_pull_http_request(
 pub enum PullError {
     FetchFailed(FetchError),
     InvalidRequest(http::Error),
+    InvalidRequestJson(serde_json::error::Error),
     InvalidResponse(serde_json::error::Error),
+    InvalidResponseJson(serde_wasm_bindgen::Error),
     SerializeRequestError(serde_json::error::Error),
     JsError(JsValue),
 }
@@ -528,6 +531,12 @@ pub enum PullError {
 impl From<JsValue> for PullError {
     fn from(v: JsValue) -> Self {
         PullError::JsError(v)
+    }
+}
+
+impl From<serde_wasm_bindgen::Error> for PullError {
+    fn from(e: serde_wasm_bindgen::Error) -> Self {
+        PullError::InvalidResponseJson(e)
     }
 }
 
@@ -545,36 +554,12 @@ impl JsPuller {
     }
 }
 
-#[derive(Serialize)]
-struct JsPullerArgs<'a> {
-    pub url: &'a str,
-    pub auth: &'a str,
-    #[serde(rename = "requestID")]
-    pub request_id: &'a str,
-}
+#[wasm_bindgen]
+extern "C" {
+    type Request;
 
-#[derive(Serialize)]
-struct JsPullerBody<'a> {
-    #[serde(rename = "clientID")]
-    pub client_id: &'a str,
-    #[serde(default)]
-    pub cookie: &'a serde_json::Value,
-    #[serde(rename = "lastMutationID")]
-    pub last_mutation_id: &'a u64,
-    #[serde(rename = "pullVersion")]
-    pub pull_version: &'a u32,
-    // schema_version can optionally be used by the customer's app
-    // to indicate to the data layer what format of Client View the
-    // app understands.
-    #[serde(rename = "schemaVersion")]
-    pub schema_version: &'a str,
-}
-
-#[derive(Deserialize)]
-struct JsPullerResult {
-    response: Option<PullResponse>,
-    #[serde(rename = "httpRequestInfo")]
-    http_request_info: HttpRequestInfo,
+    #[wasm_bindgen(constructor)]
+    fn new(url: &str, init: &JsValue) -> Request;
 }
 
 #[async_trait(?Send)]
@@ -593,26 +578,40 @@ impl Puller for JsPuller {
             pull_version,
             schema_version,
         } = pull_req;
-        let args = JsPullerArgs {
-            url,
-            auth,
-            request_id,
-        };
-        let body = JsPullerBody {
+
+        #[derive(Serialize)]
+        struct Body<'a> {
+            #[serde(rename = "clientID")]
+            pub client_id: &'a str,
+            #[serde(default)]
+            pub cookie: &'a serde_json::Value,
+            #[serde(rename = "lastMutationID")]
+            pub last_mutation_id: &'a u64,
+            #[serde(rename = "pullVersion")]
+            pub pull_version: &'a u32,
+            // schema_version can optionally be used by the customer's app
+            // to indicate to the data layer what format of Client View the
+            // app understands.
+            #[serde(rename = "schemaVersion")]
+            pub schema_version: &'a str,
+        }
+        let body = Body {
             client_id,
             cookie,
             last_mutation_id,
             pull_version,
             schema_version,
         };
-        let js_args = serde_wasm_bindgen::to_value(&args).map_err(JsValue::from)?;
-        let js_body = serde_wasm_bindgen::to_value(&body).map_err(JsValue::from)?;
-        let p: js_sys::Promise = self
-            .puller
-            .call2(&JsValue::UNDEFINED, &js_args, &js_body)?
-            .dyn_into()?;
-        let js_res = JsFuture::from(p).await?;
-        let res: JsPullerResult = serde_wasm_bindgen::from_value(js_res).map_err(JsValue::from)?;
+
+        #[derive(Deserialize)]
+        struct Result {
+            response: Option<PullResponse>,
+            #[serde(rename = "httpRequestInfo")]
+            http_request_info: HttpRequestInfo,
+        }
+        let res =
+            call_js_request::<Body, Result, PullError>(&self.puller, url, body, auth, request_id)
+                .await?;
         Ok((res.response, res.http_request_info))
     }
 }
