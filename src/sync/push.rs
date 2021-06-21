@@ -123,14 +123,6 @@ impl JsPusher {
     }
 }
 
-// #[derive(Serialize)]
-// struct JsPusherArgs<'a> {
-//     pub url: &'a str,
-//     pub auth: &'a str,
-//     #[serde(rename = "requestID")]
-//     pub request_id: &'a str,
-// }
-
 #[async_trait(?Send)]
 impl Pusher for JsPusher {
     async fn push(
