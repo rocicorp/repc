@@ -1,7 +1,7 @@
 use super::leaf_generated::leaf::{self, LeafEntry};
 use super::Entry;
 use crate::dag::Chunk;
-use crate::to_js::ToJsValue;
+use crate::to_native::ToNativeValue;
 use flatbuffers::FlatBufferBuilder;
 use std::cmp::Ordering;
 use wasm_bindgen::JsValue;
@@ -19,8 +19,8 @@ pub enum LoadError {
     Corrupt(&'static str),
 }
 
-impl ToJsValue for LoadError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for LoadError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
             LoadError::Corrupt(_) => None,
         }

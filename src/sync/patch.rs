@@ -1,5 +1,5 @@
 use crate::db;
-use crate::to_js::ToJsValue;
+use crate::to_native::ToNativeValue;
 use crate::util::rlog;
 use serde::Deserialize;
 use wasm_bindgen::JsValue;
@@ -57,15 +57,15 @@ pub enum PatchError {
     PutError(db::PutError),
 }
 
-impl ToJsValue for PatchError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for PatchError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            PatchError::ClearError(e) => e.to_js(),
-            PatchError::DelError(e) => e.to_js(),
+            PatchError::ClearError(e) => e.to_native(),
+            PatchError::DelError(e) => e.to_native(),
             PatchError::InvalidOp(_) => None,
             PatchError::InvalidPath(_) => None,
             PatchError::InvalidValue(_) => None,
-            PatchError::PutError(e) => e.to_js(),
+            PatchError::PutError(e) => e.to_native(),
         }
     }
 }

@@ -1,5 +1,5 @@
 use super::index;
-use crate::{prolly, to_js::ToJsValue};
+use crate::{prolly, to_native::ToNativeValue};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use str_macro::str;
@@ -130,10 +130,10 @@ pub enum ScanOptionsError {
     CreateScanKeyFailure(super::index::GetIndexKeysError),
 }
 
-impl ToJsValue for ScanOptionsError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for ScanOptionsError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            ScanOptionsError::CreateScanKeyFailure(e) => e.to_js(),
+            ScanOptionsError::CreateScanKeyFailure(e) => e.to_native(),
         }
     }
 }

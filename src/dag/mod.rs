@@ -22,7 +22,7 @@ mod read;
 mod store;
 mod write;
 
-use crate::{kv, to_js::ToJsValue};
+use crate::{kv, to_native::ToNativeValue};
 pub use chunk::Chunk;
 pub use key::Key;
 pub use read::{OwnedRead, Read};
@@ -36,10 +36,10 @@ pub enum Error {
     CorruptStore(String),
 }
 
-impl ToJsValue for Error {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for Error {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            Error::Storage(e) => e.to_js(),
+            Error::Storage(e) => e.to_native(),
             Error::CorruptStore(_) => None,
         }
     }

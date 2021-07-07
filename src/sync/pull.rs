@@ -8,9 +8,10 @@ use crate::dag;
 use crate::db::{Commit, MetaTyped, Whence, DEFAULT_HEAD_NAME};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::fetch;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::fetch::errors::FetchError;
 use crate::prolly;
-use crate::to_js::ToJsValue;
+use crate::to_native::ToNativeValue;
 use crate::util::rlog;
 use crate::util::rlog::LogContext;
 use crate::{
@@ -351,10 +352,10 @@ pub enum ChangedKeysError {
     InvalidUtf8(FromUtf8Error),
 }
 
-impl ToJsValue for ChangedKeysError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for ChangedKeysError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            ChangedKeysError::GetMapError(e) => e.to_js(),
+            ChangedKeysError::GetMapError(e) => e.to_native(),
             ChangedKeysError::InvalidUtf8(_) => None,
         }
     }
@@ -528,6 +529,7 @@ pub fn new_pull_http_request(
 
 #[derive(Debug)]
 pub enum PullError {
+    #[cfg(not(target_arch = "wasm32"))]
     FetchFailed(FetchError),
     InvalidRequest(http::Error),
     InvalidRequestJson(serde_json::error::Error),
@@ -625,10 +627,11 @@ impl Puller for JsPuller {
     }
 }
 
-impl ToJsValue for PullError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for PullError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            PullError::FetchFailed(e) => e.to_js(),
+            #[cfg(not(target_arch = "wasm32"))]
+            PullError::FetchFailed(e) => e.to_native(),
             PullError::InvalidRequest(_) => None,
             PullError::InvalidResponse(_) => None,
             PullError::SerializeRequestError(_) => None,

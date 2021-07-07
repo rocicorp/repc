@@ -1,5 +1,5 @@
 use super::commit_generated::commit as commit_fb;
-use crate::{dag, to_js::ToJsValue};
+use crate::{dag, to_native::ToNativeValue};
 use flatbuffers::FlatBufferBuilder;
 use std::collections::hash_set::HashSet;
 use str_macro::str;
@@ -414,11 +414,11 @@ pub enum BaseSnapshotError {
     NoSuchCommit(FromHashError),
 }
 
-impl ToJsValue for BaseSnapshotError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for BaseSnapshotError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
             BaseSnapshotError::NoBasis(_) => None,
-            BaseSnapshotError::NoSuchCommit(e) => e.to_js(),
+            BaseSnapshotError::NoSuchCommit(e) => e.to_native(),
         }
     }
 }
@@ -430,12 +430,12 @@ pub enum WalkChainError {
     NoSuchCommit(FromHashError),
 }
 
-impl ToJsValue for WalkChainError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for WalkChainError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
             WalkChainError::EndOfChainNotASnapshot(_) => None,
             WalkChainError::NoBasis(_) => None,
-            WalkChainError::NoSuchCommit(e) => e.to_js(),
+            WalkChainError::NoSuchCommit(e) => e.to_native(),
         }
     }
 }
@@ -559,8 +559,8 @@ pub enum LoadError {
     DuplicateIndexName(String),
 }
 
-impl ToJsValue for LoadError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for LoadError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
             LoadError::InvalidCookieJson(_) => None,
             LoadError::MissingCookie => None,
@@ -570,7 +570,7 @@ impl ToJsValue for LoadError {
             LoadError::MissingMeta => None,
             LoadError::MissingValueHash => None,
             LoadError::UnknownMetaType => None,
-            LoadError::InvalidIndex((_, e)) => e.to_js(),
+            LoadError::InvalidIndex((_, e)) => e.to_native(),
             LoadError::DuplicateIndexName(_) => None,
         }
     }
@@ -583,8 +583,8 @@ pub enum ValidateIndexDefinitionError {
     MissingIndexPath,
 }
 
-impl ToJsValue for ValidateIndexDefinitionError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for ValidateIndexDefinitionError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
             ValidateIndexDefinitionError::MissingName => None,
             ValidateIndexDefinitionError::MissingKeyPrefix => None,
@@ -600,11 +600,11 @@ pub enum ValidateIndexError {
     MissingValueHash,
 }
 
-impl ToJsValue for ValidateIndexError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for ValidateIndexError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
             ValidateIndexError::MissingDefinition => None,
-            ValidateIndexError::InvalidDefintion(e) => e.to_js(),
+            ValidateIndexError::InvalidDefintion(e) => e.to_native(),
             ValidateIndexError::MissingValueHash => None,
         }
     }
@@ -617,12 +617,12 @@ pub enum FromHashError {
     LoadCommitFailed(LoadError),
 }
 
-impl ToJsValue for FromHashError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for FromHashError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            FromHashError::GetChunkFailed(e) => e.to_js(),
+            FromHashError::GetChunkFailed(e) => e.to_native(),
             FromHashError::ChunkMissing(_) => None,
-            FromHashError::LoadCommitFailed(e) => e.to_js(),
+            FromHashError::LoadCommitFailed(e) => e.to_native(),
         }
     }
 }
@@ -633,8 +633,8 @@ pub enum InternalProgrammerError {
     WrongType(String),
 }
 
-impl ToJsValue for InternalProgrammerError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for InternalProgrammerError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
             InternalProgrammerError::InvalidCookieJson(_) => None,
             InternalProgrammerError::WrongType(_) => None,

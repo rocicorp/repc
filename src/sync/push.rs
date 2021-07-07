@@ -2,8 +2,9 @@ use super::js_request::call_js_request;
 use super::{HttpRequestInfo, TryPushError, TryPushRequest};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::fetch;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::fetch::errors::FetchError;
-use crate::to_js::ToJsValue;
+use crate::to_native::ToNativeValue;
 use crate::util::rlog;
 use crate::{dag, db, util::rlog::LogContext};
 use async_trait::async_trait;
@@ -195,9 +196,12 @@ fn new_push_http_request(
 
 #[derive(Debug)]
 pub enum PushError {
+    #[cfg(not(target_arch = "wasm32"))]
     FetchFailed(FetchError),
+    #[cfg(not(target_arch = "wasm32"))]
     InvalidRequest(http::Error),
     InvalidResponseJson(serde_wasm_bindgen::Error),
+    #[cfg(not(target_arch = "wasm32"))]
     SerializePushError(serde_json::error::Error),
     JsError(JsValue),
 }
@@ -214,11 +218,14 @@ impl From<serde_wasm_bindgen::Error> for PushError {
     }
 }
 
-impl ToJsValue for PushError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for PushError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            PushError::FetchFailed(e) => e.to_js(),
+            #[cfg(not(target_arch = "wasm32"))]
+            PushError::FetchFailed(e) => e.to_native(),
+            #[cfg(not(target_arch = "wasm32"))]
             PushError::InvalidRequest(_) => None,
+            #[cfg(not(target_arch = "wasm32"))]
             PushError::SerializePushError(_) => None,
             // TODO(arv): There is a `impl From<Error> for JsValue` but no `impl From<&Error> for &JsValue`. Why is Rust so weird?
             PushError::InvalidResponseJson(_) => None,

@@ -2,7 +2,7 @@ use super::commit::{Commit, FromHashError};
 use super::index;
 use crate::dag;
 use crate::prolly;
-use crate::to_js::ToJsValue;
+use crate::to_native::ToNativeValue;
 use std::collections::hash_map::HashMap;
 use std::convert::TryInto;
 use wasm_bindgen::JsValue;
@@ -28,12 +28,12 @@ pub enum ReadCommitError {
     UnknownHead(String),
 }
 
-impl ToJsValue for ReadCommitError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for ReadCommitError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            ReadCommitError::CommitFromHeadError(e) => e.to_js(),
-            ReadCommitError::GetHeadError(e) => e.to_js(),
-            ReadCommitError::MapLoadError(e) => e.to_js(),
+            ReadCommitError::CommitFromHeadError(e) => e.to_native(),
+            ReadCommitError::GetHeadError(e) => e.to_native(),
+            ReadCommitError::MapLoadError(e) => e.to_native(),
             ReadCommitError::UnknownHead(_) => None,
         }
     }
@@ -153,11 +153,11 @@ pub enum ScanError {
     UnknownIndexName(String),
 }
 
-impl ToJsValue for ScanError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for ScanError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            ScanError::GetMapError(e) => e.to_js(),
-            ScanError::ScanOptionsError(e) => e.to_js(),
+            ScanError::GetMapError(e) => e.to_native(),
+            ScanError::ScanOptionsError(e) => e.to_native(),
             ScanError::UnknownIndexName(_) => None,
         }
     }

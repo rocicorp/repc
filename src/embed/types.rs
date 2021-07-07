@@ -4,7 +4,7 @@ use std::string::FromUtf8Error;
 
 use crate::{
     db::{self, ChangedKeysMap},
-    to_js::ToJsValue,
+    to_native::ToNativeValue,
 };
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsValue;
@@ -114,8 +114,8 @@ pub struct HasResponse {
 #[derive(Debug)]
 pub enum HasError {}
 
-impl ToJsValue for HasError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for HasError {
+    fn to_native(&self) -> Option<&JsValue> {
         None
     }
 }
@@ -139,8 +139,8 @@ pub enum GetError {
     Utf8Error(FromUtf8Error),
 }
 
-impl ToJsValue for GetError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for GetError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
             GetError::Utf8Error(_) => None,
         }
@@ -171,13 +171,13 @@ pub enum ScanError {
     ScanError(db::ScanError),
 }
 
-impl ToJsValue for ScanError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for ScanError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
             ScanError::InvalidReceiver => None,
-            ScanError::InternalIndexError(e) => e.to_js(),
+            ScanError::InternalIndexError(e) => e.to_native(),
             ScanError::MissingReceiver => None,
-            ScanError::ScanError(e) => e.to_js(),
+            ScanError::ScanError(e) => e.to_native(),
         }
     }
 }
@@ -228,10 +228,10 @@ pub enum CreateIndexError {
     DBError(db::CreateIndexError),
 }
 
-impl ToJsValue for CreateIndexError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for CreateIndexError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            CreateIndexError::DBError(e) => e.to_js(),
+            CreateIndexError::DBError(e) => e.to_native(),
         }
     }
 }
@@ -251,10 +251,10 @@ pub enum DropIndexError {
     DBError(db::DropIndexError),
 }
 
-impl ToJsValue for DropIndexError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for DropIndexError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            DropIndexError::DBError(e) => e.to_js(),
+            DropIndexError::DBError(e) => e.to_native(),
         }
     }
 }
@@ -273,8 +273,8 @@ pub enum SetLogLevelError {
     UnknownLogLevel(String),
 }
 
-impl ToJsValue for SetLogLevelError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for SetLogLevelError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
             SetLogLevelError::UnknownLogLevel(_) => None,
         }

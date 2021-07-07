@@ -4,7 +4,7 @@ use crate::dag;
 use crate::db;
 use crate::sync;
 use crate::sync::JsPusher;
-use crate::to_js::ToJsValue;
+use crate::to_native::ToNativeValue;
 use crate::util::rlog;
 use crate::util::rlog::LogContext;
 use crate::util::to_debug;
@@ -47,7 +47,7 @@ enum ToJsError {
     SerializeError(serde_wasm_bindgen::Error),
 }
 
-fn to_js<T: serde::Serialize, E: std::fmt::Debug + ToJsValue>(
+fn to_js<T: serde::Serialize, E: std::fmt::Debug + ToNativeValue<JsValue>>(
     res: Result<T, E>,
 ) -> Result<JsValue, JsValue> {
     use ToJsError::*;
@@ -57,10 +57,10 @@ fn to_js<T: serde::Serialize, E: std::fmt::Debug + ToJsValue>(
             .map_err(to_debug)?),
         Err(v) => {
             let js_err: JsValue = js_sys::Error::new(&to_debug(&v)).into();
-            if let Some(v) = v.to_js() {
-                let v = v.clone();
+            if let Some(v) = v.to_native() {
+                // let vvv = v.clone();
                 // Add the cause property: https://github.com/tc39/proposal-error-cause
-                js_sys::Reflect::set(&js_err, &JsValue::from_str("cause"), &v)?;
+                js_sys::Reflect::set(&js_err, &JsValue::from_str("cause"), v)?;
             }
             Err(js_err)
         }
@@ -735,10 +735,10 @@ enum GetRootError {
     DBError(db::GetRootError),
 }
 
-impl ToJsValue for GetRootError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for GetRootError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            GetRootError::DBError(e) => e.to_js(),
+            GetRootError::DBError(e) => e.to_native(),
         }
     }
 }
@@ -760,20 +760,20 @@ enum OpenTransactionError {
     WrongSyncHeadJSLogInfo(String), // "JSLogInfo" is a signal to bindings to not log this alarmingly.
 }
 
-impl ToJsValue for OpenTransactionError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for OpenTransactionError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
             OpenTransactionError::ArgsRequired => None,
-            OpenTransactionError::DagWriteError(e) => e.to_js(),
-            OpenTransactionError::DagReadError(e) => e.to_js(),
-            OpenTransactionError::DBWriteError(e) => e.to_js(),
-            OpenTransactionError::DBReadError(e) => e.to_js(),
-            OpenTransactionError::GetHeadError(e) => e.to_js(),
+            OpenTransactionError::DagWriteError(e) => e.to_native(),
+            OpenTransactionError::DagReadError(e) => e.to_native(),
+            OpenTransactionError::DBWriteError(e) => e.to_native(),
+            OpenTransactionError::DBReadError(e) => e.to_native(),
+            OpenTransactionError::GetHeadError(e) => e.to_native(),
             OpenTransactionError::InconsistentMutationId(_) => None,
             OpenTransactionError::InconsistentMutator(_) => None,
             OpenTransactionError::InternalProgrammerError(_) => None,
-            OpenTransactionError::NoSuchBasis(e) => e.to_js(),
-            OpenTransactionError::NoSuchOriginal(e) => e.to_js(),
+            OpenTransactionError::NoSuchBasis(e) => e.to_native(),
+            OpenTransactionError::NoSuchOriginal(e) => e.to_native(),
             OpenTransactionError::WrongSyncHeadJSLogInfo(_) => None,
         }
     }
@@ -786,10 +786,10 @@ enum CommitTransactionError {
     UnknownTransaction,
 }
 
-impl ToJsValue for CommitTransactionError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for CommitTransactionError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            CommitTransactionError::CommitError(e) => e.to_js(),
+            CommitTransactionError::CommitError(e) => e.to_native(),
             CommitTransactionError::TransactionIsReadOnly => None,
             CommitTransactionError::UnknownTransaction => None,
         }
@@ -801,8 +801,8 @@ enum CloseTransactionError {
     UnknownTransaction,
 }
 
-impl ToJsValue for CloseTransactionError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for CloseTransactionError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
             CloseTransactionError::UnknownTransaction => None,
         }

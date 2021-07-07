@@ -1,7 +1,7 @@
 use super::commit;
 use crate::dag;
 use crate::prolly;
-use crate::to_js::ToJsValue;
+use crate::to_native::ToNativeValue;
 use async_std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -85,10 +85,10 @@ pub enum GetMapError {
     MapLoadError(prolly::LoadError),
 }
 
-impl ToJsValue for GetMapError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for GetMapError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            GetMapError::MapLoadError(e) => e.to_js(),
+            GetMapError::MapLoadError(e) => e.to_native(),
         }
     }
 }
@@ -98,10 +98,10 @@ pub enum IndexFlushError {
     MapFlushError(prolly::FlushError),
 }
 
-impl ToJsValue for IndexFlushError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for IndexFlushError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            IndexFlushError::MapFlushError(e) => e.to_js(),
+            IndexFlushError::MapFlushError(e) => e.to_native(),
         }
     }
 }
@@ -126,10 +126,10 @@ pub enum IndexValueError {
     GetIndexKeysError(GetIndexKeysError),
 }
 
-impl ToJsValue for IndexValueError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for IndexValueError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            IndexValueError::GetIndexKeysError(e) => e.to_js(),
+            IndexValueError::GetIndexKeysError(e) => e.to_native(),
         }
     }
 }
@@ -160,8 +160,8 @@ pub enum GetIndexKeysError {
     UnsupportedTargetType,
 }
 
-impl ToJsValue for GetIndexKeysError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for GetIndexKeysError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
             GetIndexKeysError::DeserializeError(_) => None,
             GetIndexKeysError::NoValueAtPath(_) => None,
@@ -326,8 +326,8 @@ pub enum DecodeIndexKeyError {
     InvalidVersion,
 }
 
-impl ToJsValue for DecodeIndexKeyError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for DecodeIndexKeyError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
             DecodeIndexKeyError::InvalidFormatting(_) => None,
             DecodeIndexKeyError::InvalidVersion => None,

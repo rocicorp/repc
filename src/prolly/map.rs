@@ -8,7 +8,7 @@ use super::Entry;
 use crate::dag;
 use crate::dag::Read;
 use crate::dag::Write;
-use crate::to_js::ToJsValue;
+use crate::to_native::ToNativeValue;
 use std::collections::BTreeMap;
 use std::iter::{Iterator, Peekable};
 use std::{cmp::Ordering, string::FromUtf8Error};
@@ -28,12 +28,12 @@ pub enum LoadError {
     CorruptChunk(leaf::LoadError),
 }
 
-impl ToJsValue for LoadError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for LoadError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            LoadError::Storage(e) => e.to_js(),
+            LoadError::Storage(e) => e.to_native(),
             LoadError::UnknownHash => None,
-            LoadError::CorruptChunk(e) => e.to_js(),
+            LoadError::CorruptChunk(e) => e.to_native(),
         }
     }
 }
@@ -55,10 +55,10 @@ pub enum FlushError {
     Storage(dag::Error),
 }
 
-impl ToJsValue for FlushError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for FlushError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            FlushError::Storage(e) => e.to_js(),
+            FlushError::Storage(e) => e.to_native(),
         }
     }
 }

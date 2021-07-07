@@ -2,7 +2,7 @@ use super::index::GetMapError;
 use super::{commit, index, read, scan, ReadCommitError, Whence};
 use crate::dag;
 use crate::prolly;
-use crate::to_js::ToJsValue;
+use crate::to_native::ToNativeValue;
 use crate::util::rlog;
 use std::collections::HashMap;
 use std::string::FromUtf8Error;
@@ -475,11 +475,11 @@ pub enum CreateIndexError {
     NotAllowed,
 }
 
-impl ToJsValue for CreateIndexError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for CreateIndexError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            CreateIndexError::FlushError(e) => e.to_js(),
-            CreateIndexError::IndexError((_, _, _, e)) => e.to_js(),
+            CreateIndexError::FlushError(e) => e.to_native(),
+            CreateIndexError::IndexError((_, _, _, e)) => e.to_native(),
             CreateIndexError::IndexExistsWithDifferentDefinition => None,
             CreateIndexError::NotAllowed => None,
         }
@@ -492,8 +492,8 @@ pub enum DropIndexError {
     NotAllowed,
 }
 
-impl ToJsValue for DropIndexError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for DropIndexError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
             DropIndexError::NoSuchIndexError(_) => None,
             DropIndexError::NotAllowed => None,
@@ -516,17 +516,17 @@ pub enum CommitError {
     SerializeCookieError(serde_json::error::Error),
 }
 
-impl ToJsValue for CommitError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for CommitError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            CommitError::DagPutChunkError(e) => e.to_js(),
-            CommitError::DagSetHeadError(e) => e.to_js(),
-            CommitError::DagCommitError(e) => e.to_js(),
-            CommitError::FlushError(e) => e.to_js(),
-            CommitError::GetMapError(e) => e.to_js(),
+            CommitError::DagPutChunkError(e) => e.to_native(),
+            CommitError::DagSetHeadError(e) => e.to_native(),
+            CommitError::DagCommitError(e) => e.to_native(),
+            CommitError::FlushError(e) => e.to_native(),
+            CommitError::GetMapError(e) => e.to_native(),
             CommitError::IndexChangeMustNotChangeMutationID => None,
             CommitError::IndexChangeMustNotChangeValueHash => None,
-            CommitError::IndexFlushError(e) => e.to_js(),
+            CommitError::IndexFlushError(e) => e.to_native(),
             CommitError::InvalidUtf8(_) => None,
             CommitError::SerializeArgsError(_) => None,
             CommitError::SerializeCookieError(_) => None,
@@ -541,12 +541,12 @@ pub enum PutError {
     RemoveOldIndexEntriesError(UpdateIndexesError),
 }
 
-impl ToJsValue for PutError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for PutError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            PutError::AddNewIndexEntriesError(e) => e.to_js(),
+            PutError::AddNewIndexEntriesError(e) => e.to_native(),
             PutError::NotAllowed => None,
-            PutError::RemoveOldIndexEntriesError(e) => e.to_js(),
+            PutError::RemoveOldIndexEntriesError(e) => e.to_native(),
         }
     }
 }
@@ -557,11 +557,11 @@ pub enum DelError {
     UpdateIndexesError(UpdateIndexesError),
 }
 
-impl ToJsValue for DelError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for DelError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
             DelError::NotAllowed => None,
-            DelError::UpdateIndexesError(e) => e.to_js(),
+            DelError::UpdateIndexesError(e) => e.to_native(),
         }
     }
 }
@@ -572,11 +572,11 @@ pub enum UpdateIndexesError {
     IndexValueError(index::IndexValueError),
 }
 
-impl ToJsValue for UpdateIndexesError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for UpdateIndexesError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            UpdateIndexesError::GetMapError(e) => e.to_js(),
-            UpdateIndexesError::IndexValueError(e) => e.to_js(),
+            UpdateIndexesError::GetMapError(e) => e.to_native(),
+            UpdateIndexesError::IndexValueError(e) => e.to_native(),
         }
     }
 }
@@ -587,10 +587,10 @@ pub enum ClearError {
     NotAllowed,
 }
 
-impl ToJsValue for ClearError {
-    fn to_js(&self) -> Option<&JsValue> {
+impl ToNativeValue<JsValue> for ClearError {
+    fn to_native(&self) -> Option<&JsValue> {
         match self {
-            ClearError::GetMapError(e) => e.to_js(),
+            ClearError::GetMapError(e) => e.to_native(),
             ClearError::NotAllowed => None,
         }
     }
