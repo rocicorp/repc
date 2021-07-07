@@ -169,20 +169,6 @@ impl Pusher for JsPusher {
         )
         .await?;
         Ok(res)
-
-        // // Need to use serialize_maps_as_objects or we end up with a JS Map
-        // // instead of a JS Object.
-        // let serializer = Serializer::new().serialize_maps_as_objects(true);
-        // let js_arg = args.serialize(&serializer).map_err(JsValue::from)?;
-        // let js_body = body.serialize(&serializer).map_err(JsValue::from)?;
-        // let p: js_sys::Promise = self
-        //     .pusher
-        //     .call2(&JsValue::UNDEFINED, &js_arg, &js_body)?
-        //     .dyn_into()?;
-        // let js_res = JsFuture::from(p).await?;
-
-        // let res: HttpRequestInfo = serde_wasm_bindgen::from_value(js_res).map_err(JsValue::from)?;
-        // Ok(res)
     }
 }
 
