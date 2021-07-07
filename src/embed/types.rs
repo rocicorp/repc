@@ -1,7 +1,13 @@
 #![allow(clippy::redundant_pattern_matching)] // For derive(Deserialize).
 
-use crate::db::{self, ChangedKeysMap};
+use std::string::FromUtf8Error;
+
+use crate::{
+    db::{self, ChangedKeysMap},
+    to_native::ToNativeValue,
+};
 use serde::{Deserialize, Serialize};
+use wasm_bindgen::JsValue;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct OpenRequest {
@@ -105,6 +111,15 @@ pub struct HasResponse {
     pub has: bool,
 }
 
+#[derive(Debug)]
+pub enum HasError {}
+
+impl ToNativeValue<JsValue> for HasError {
+    fn to_native(&self) -> Option<&JsValue> {
+        None
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GetRequest {
     #[serde(rename = "transactionId")]
@@ -117,6 +132,19 @@ pub struct GetResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
     pub has: bool, // Second to avoid trailing comma if value == None.
+}
+
+#[derive(Debug)]
+pub enum GetError {
+    Utf8Error(FromUtf8Error),
+}
+
+impl ToNativeValue<JsValue> for GetError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            GetError::Utf8Error(_) => None,
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -141,6 +169,17 @@ pub enum ScanError {
     InternalIndexError(db::index::DecodeIndexKeyError),
     MissingReceiver,
     ScanError(db::ScanError),
+}
+
+impl ToNativeValue<JsValue> for ScanError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            ScanError::InvalidReceiver => None,
+            ScanError::InternalIndexError(e) => e.to_native(),
+            ScanError::MissingReceiver => None,
+            ScanError::ScanError(e) => e.to_native(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
@@ -189,6 +228,14 @@ pub enum CreateIndexError {
     DBError(db::CreateIndexError),
 }
 
+impl ToNativeValue<JsValue> for CreateIndexError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            CreateIndexError::DBError(e) => e.to_native(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DropIndexRequest {
     #[serde(rename = "transactionId")]
@@ -204,6 +251,14 @@ pub enum DropIndexError {
     DBError(db::DropIndexError),
 }
 
+impl ToNativeValue<JsValue> for DropIndexError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            DropIndexError::DBError(e) => e.to_native(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct SetLogLevelRequest {
     // level is one of "debug", "info", or "error"
@@ -216,4 +271,12 @@ pub struct SetLogLevelResponse {}
 #[derive(Debug)]
 pub enum SetLogLevelError {
     UnknownLogLevel(String),
+}
+
+impl ToNativeValue<JsValue> for SetLogLevelError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            SetLogLevelError::UnknownLogLevel(_) => None,
+        }
+    }
 }

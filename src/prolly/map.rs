@@ -1,11 +1,14 @@
 #![allow(clippy::useless_let_if_seq)]
 
+use wasm_bindgen::JsValue;
+
 use super::leaf;
 use super::leaf::Leaf;
 use super::Entry;
 use crate::dag;
 use crate::dag::Read;
 use crate::dag::Write;
+use crate::to_native::ToNativeValue;
 use std::collections::BTreeMap;
 use std::iter::{Iterator, Peekable};
 use std::{cmp::Ordering, string::FromUtf8Error};
@@ -25,6 +28,16 @@ pub enum LoadError {
     CorruptChunk(leaf::LoadError),
 }
 
+impl ToNativeValue<JsValue> for LoadError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            LoadError::Storage(e) => e.to_native(),
+            LoadError::UnknownHash => None,
+            LoadError::CorruptChunk(e) => e.to_native(),
+        }
+    }
+}
+
 impl From<dag::Error> for LoadError {
     fn from(e: dag::Error) -> Self {
         Self::Storage(e)
@@ -40,6 +53,14 @@ impl From<leaf::LoadError> for LoadError {
 #[derive(Debug, PartialEq)]
 pub enum FlushError {
     Storage(dag::Error),
+}
+
+impl ToNativeValue<JsValue> for FlushError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            FlushError::Storage(e) => e.to_native(),
+        }
+    }
 }
 
 impl From<dag::Error> for FlushError {

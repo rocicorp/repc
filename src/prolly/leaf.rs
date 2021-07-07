@@ -1,8 +1,10 @@
 use super::leaf_generated::leaf::{self, LeafEntry};
 use super::Entry;
 use crate::dag::Chunk;
+use crate::to_native::ToNativeValue;
 use flatbuffers::FlatBufferBuilder;
 use std::cmp::Ordering;
+use wasm_bindgen::JsValue;
 
 // Leaf is a leaf level node in the map tree structure.
 // It wraps a chunk containing a flatbuffer and exposes handy
@@ -15,6 +17,14 @@ pub struct Leaf {
 #[derive(Debug, Eq, PartialEq)]
 pub enum LoadError {
     Corrupt(&'static str),
+}
+
+impl ToNativeValue<JsValue> for LoadError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            LoadError::Corrupt(_) => None,
+        }
+    }
 }
 
 impl Leaf {

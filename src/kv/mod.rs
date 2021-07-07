@@ -1,13 +1,22 @@
 pub mod idbstore;
 pub mod memstore;
 
-use crate::util::rlog::LogContext;
+use crate::{to_native::ToNativeValue, util::rlog::LogContext};
 use async_trait::async_trait;
 use std::fmt;
+use wasm_bindgen::JsValue;
 
 #[derive(Debug, PartialEq)]
 pub enum StoreError {
     Str(String),
+}
+
+impl ToNativeValue<JsValue> for StoreError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            StoreError::Str(_) => None,
+        }
+    }
 }
 
 impl fmt::Display for StoreError {
@@ -141,7 +150,7 @@ pub mod trait_tests {
         assert!(!store.has("k1").await.unwrap());
 
         // Test del then rollback.
-        assert_eq!(true, store.has("k2").await.unwrap());
+        assert!(store.has("k2").await.unwrap());
         let wt = store.write(LogContext::new()).await.unwrap();
         wt.del("k2").await.unwrap();
         assert!(!wt.has("k2").await.unwrap());

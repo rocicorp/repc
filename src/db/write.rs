@@ -2,10 +2,12 @@ use super::index::GetMapError;
 use super::{commit, index, read, scan, ReadCommitError, Whence};
 use crate::dag;
 use crate::prolly;
+use crate::to_native::ToNativeValue;
 use crate::util::rlog;
 use std::collections::HashMap;
 use std::string::FromUtf8Error;
 use str_macro::str;
+use wasm_bindgen::JsValue;
 
 #[allow(dead_code)]
 enum Meta {
@@ -473,10 +475,30 @@ pub enum CreateIndexError {
     NotAllowed,
 }
 
+impl ToNativeValue<JsValue> for CreateIndexError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            CreateIndexError::FlushError(e) => e.to_native(),
+            CreateIndexError::IndexError((_, _, _, e)) => e.to_native(),
+            CreateIndexError::IndexExistsWithDifferentDefinition => None,
+            CreateIndexError::NotAllowed => None,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum DropIndexError {
     NoSuchIndexError(String),
     NotAllowed,
+}
+
+impl ToNativeValue<JsValue> for DropIndexError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            DropIndexError::NoSuchIndexError(_) => None,
+            DropIndexError::NotAllowed => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -494,11 +516,39 @@ pub enum CommitError {
     SerializeCookieError(serde_json::error::Error),
 }
 
+impl ToNativeValue<JsValue> for CommitError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            CommitError::DagPutChunkError(e) => e.to_native(),
+            CommitError::DagSetHeadError(e) => e.to_native(),
+            CommitError::DagCommitError(e) => e.to_native(),
+            CommitError::FlushError(e) => e.to_native(),
+            CommitError::GetMapError(e) => e.to_native(),
+            CommitError::IndexChangeMustNotChangeMutationID => None,
+            CommitError::IndexChangeMustNotChangeValueHash => None,
+            CommitError::IndexFlushError(e) => e.to_native(),
+            CommitError::InvalidUtf8(_) => None,
+            CommitError::SerializeArgsError(_) => None,
+            CommitError::SerializeCookieError(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum PutError {
     AddNewIndexEntriesError(UpdateIndexesError),
     NotAllowed,
     RemoveOldIndexEntriesError(UpdateIndexesError),
+}
+
+impl ToNativeValue<JsValue> for PutError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            PutError::AddNewIndexEntriesError(e) => e.to_native(),
+            PutError::NotAllowed => None,
+            PutError::RemoveOldIndexEntriesError(e) => e.to_native(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -507,16 +557,43 @@ pub enum DelError {
     UpdateIndexesError(UpdateIndexesError),
 }
 
+impl ToNativeValue<JsValue> for DelError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            DelError::NotAllowed => None,
+            DelError::UpdateIndexesError(e) => e.to_native(),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum UpdateIndexesError {
     GetMapError(index::GetMapError),
     IndexValueError(index::IndexValueError),
 }
 
+impl ToNativeValue<JsValue> for UpdateIndexesError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            UpdateIndexesError::GetMapError(e) => e.to_native(),
+            UpdateIndexesError::IndexValueError(e) => e.to_native(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum ClearError {
     GetMapError(index::GetMapError),
     NotAllowed,
+}
+
+impl ToNativeValue<JsValue> for ClearError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            ClearError::GetMapError(e) => e.to_native(),
+            ClearError::NotAllowed => None,
+        }
+    }
 }
 
 #[cfg(test)]

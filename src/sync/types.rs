@@ -3,6 +3,7 @@ use crate::{
     dag,
     db::{self, ChangedKeysMap},
     prolly,
+    to_native::ToNativeValue,
 };
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsValue;
@@ -101,6 +102,20 @@ pub enum TryPushError {
     ReadError(dag::Error),
 }
 
+impl ToNativeValue<JsValue> for TryPushError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            TryPushError::GetHeadError(e) => e.to_native(),
+            TryPushError::InternalGetPendingCommitsError(e) => e.to_native(),
+            TryPushError::InternalNoMainHeadError => None,
+            TryPushError::InternalNonLocalPendingCommit => None,
+            TryPushError::PushFailed(e) => e.to_native(),
+            TryPushError::ReadError(e) => e.to_native(),
+            TryPushError::InvalidPusher(v) => Some(v),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum BeginTryPullError {
     CommitError(db::CommitError),
@@ -121,6 +136,31 @@ pub enum BeginTryPullError {
     ReadCommitError(db::ReadCommitError),
     ReadError(dag::Error),
     TimeTravelProhibited(String),
+}
+
+impl ToNativeValue<JsValue> for BeginTryPullError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            BeginTryPullError::CommitError(e) => e.to_native(),
+            BeginTryPullError::GetHeadError(e) => e.to_native(),
+            BeginTryPullError::InternalGetChainError(e) => e.to_native(),
+            BeginTryPullError::InternalInvalidChainError => None,
+            BeginTryPullError::InternalNoMainHeadError => None,
+            BeginTryPullError::InternalProgrammerError(e) => e.to_native(),
+            BeginTryPullError::InternalRebuildIndexError(e) => e.to_native(),
+            BeginTryPullError::InvalidBaseSnapshotCookie(_) => None,
+            BeginTryPullError::LockError(e) => e.to_native(),
+            BeginTryPullError::MainHeadDisappeared => None,
+            BeginTryPullError::NoBaseSnapshot(e) => e.to_native(),
+            BeginTryPullError::OverlappingSyncsJSLogInfo => None,
+            BeginTryPullError::PatchFailed(e) => e.to_native(),
+            BeginTryPullError::PullFailed(e) => e.to_native(),
+            BeginTryPullError::ReadCommitError(e) => e.to_native(),
+            BeginTryPullError::ReadError(e) => e.to_native(),
+            BeginTryPullError::TimeTravelProhibited(_) => None,
+            BeginTryPullError::InvalidPuller(v) => Some(v),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -145,4 +185,31 @@ pub enum MaybeEndTryPullError {
     WriteDefaultHeadError(dag::Error),
     WriteSyncHeadError(dag::Error),
     WrongSyncHeadJSLogInfo, // "JSLogInfo" is a signal to bindings to not log this alarmingly.
+}
+
+impl ToNativeValue<JsValue> for MaybeEndTryPullError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            MaybeEndTryPullError::ChangedKeysError(e) => e.to_native(),
+            MaybeEndTryPullError::CommitError(e) => e.to_native(),
+            MaybeEndTryPullError::GetMainHeadError(e) => e.to_native(),
+            MaybeEndTryPullError::GetSyncHeadError(e) => e.to_native(),
+            MaybeEndTryPullError::InternalArgsUtf8Error(_) => None,
+            MaybeEndTryPullError::InternalProgrammerError(_) => None,
+            MaybeEndTryPullError::InvalidUtf8(_) => None,
+            MaybeEndTryPullError::LoadHeadError(e) => e.to_native(),
+            MaybeEndTryPullError::LoadSyncHeadError(e) => e.to_native(),
+            MaybeEndTryPullError::MissingMainHead => None,
+            MaybeEndTryPullError::MissingSyncHead => None,
+            MaybeEndTryPullError::NoBaseSnapshot(e) => e.to_native(),
+            MaybeEndTryPullError::OpenWriteTxWriteError(e) => e.to_native(),
+            MaybeEndTryPullError::OverlappingSyncsJSLogInfo => None,
+            MaybeEndTryPullError::PendingError(e) => e.to_native(),
+            MaybeEndTryPullError::ReadCommitError(e) => e.to_native(),
+            MaybeEndTryPullError::SyncSnapshotWithNoBasis => None,
+            MaybeEndTryPullError::WriteDefaultHeadError(e) => e.to_native(),
+            MaybeEndTryPullError::WriteSyncHeadError(e) => e.to_native(),
+            MaybeEndTryPullError::WrongSyncHeadJSLogInfo => None,
+        }
+    }
 }

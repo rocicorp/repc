@@ -2,7 +2,9 @@ use super::js_request::call_js_request;
 use super::{HttpRequestInfo, TryPushError, TryPushRequest};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::fetch;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::fetch::errors::FetchError;
+use crate::to_native::ToNativeValue;
 use crate::util::rlog;
 use crate::{dag, db, util::rlog::LogContext};
 use async_trait::async_trait;
@@ -168,20 +170,6 @@ impl Pusher for JsPusher {
         )
         .await?;
         Ok(res)
-
-        // // Need to use serialize_maps_as_objects or we end up with a JS Map
-        // // instead of a JS Object.
-        // let serializer = Serializer::new().serialize_maps_as_objects(true);
-        // let js_arg = args.serialize(&serializer).map_err(JsValue::from)?;
-        // let js_body = body.serialize(&serializer).map_err(JsValue::from)?;
-        // let p: js_sys::Promise = self
-        //     .pusher
-        //     .call2(&JsValue::UNDEFINED, &js_arg, &js_body)?
-        //     .dyn_into()?;
-        // let js_res = JsFuture::from(p).await?;
-
-        // let res: HttpRequestInfo = serde_wasm_bindgen::from_value(js_res).map_err(JsValue::from)?;
-        // Ok(res)
     }
 }
 
@@ -208,9 +196,12 @@ fn new_push_http_request(
 
 #[derive(Debug)]
 pub enum PushError {
+    #[cfg(not(target_arch = "wasm32"))]
     FetchFailed(FetchError),
+    #[cfg(not(target_arch = "wasm32"))]
     InvalidRequest(http::Error),
     InvalidResponseJson(serde_wasm_bindgen::Error),
+    #[cfg(not(target_arch = "wasm32"))]
     SerializePushError(serde_json::error::Error),
     JsError(JsValue),
 }
@@ -224,6 +215,22 @@ impl From<JsValue> for PushError {
 impl From<serde_wasm_bindgen::Error> for PushError {
     fn from(e: serde_wasm_bindgen::Error) -> Self {
         PushError::InvalidResponseJson(e)
+    }
+}
+
+impl ToNativeValue<JsValue> for PushError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            #[cfg(not(target_arch = "wasm32"))]
+            PushError::FetchFailed(e) => e.to_native(),
+            #[cfg(not(target_arch = "wasm32"))]
+            PushError::InvalidRequest(_) => None,
+            #[cfg(not(target_arch = "wasm32"))]
+            PushError::SerializePushError(_) => None,
+            // TODO(arv): There is a `impl From<Error> for JsValue` but no `impl From<&Error> for &JsValue`. Why is Rust so weird?
+            PushError::InvalidResponseJson(_) => None,
+            PushError::JsError(v) => Some(v),
+        }
     }
 }
 
