@@ -1,4 +1,5 @@
 pub mod idbstore;
+pub mod jsstore;
 pub mod memstore;
 
 use crate::util::rlog::LogContext;
