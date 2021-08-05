@@ -1,6 +1,8 @@
 use crate::db;
+use crate::to_native::ToNativeValue;
 use crate::util::rlog;
 use serde::Deserialize;
+use wasm_bindgen::JsValue;
 
 #[derive(Deserialize)]
 #[cfg_attr(test, derive(Clone, Debug, PartialEq))]
@@ -53,6 +55,19 @@ pub enum PatchError {
     InvalidPath(String),
     InvalidValue(serde_json::Error),
     PutError(db::PutError),
+}
+
+impl ToNativeValue<JsValue> for PatchError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            PatchError::ClearError(e) => e.to_native(),
+            PatchError::DelError(e) => e.to_native(),
+            PatchError::InvalidOp(_) => None,
+            PatchError::InvalidPath(_) => None,
+            PatchError::InvalidValue(_) => None,
+            PatchError::PutError(e) => e.to_native(),
+        }
+    }
 }
 
 #[cfg(test)]

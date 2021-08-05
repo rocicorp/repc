@@ -1,8 +1,9 @@
 use super::commit_generated::commit as commit_fb;
-use crate::dag;
+use crate::{dag, to_native::ToNativeValue};
 use flatbuffers::FlatBufferBuilder;
 use std::collections::hash_set::HashSet;
 use str_macro::str;
+use wasm_bindgen::JsValue;
 
 pub const DEFAULT_HEAD_NAME: &str = "main";
 
@@ -413,11 +414,30 @@ pub enum BaseSnapshotError {
     NoSuchCommit(FromHashError),
 }
 
+impl ToNativeValue<JsValue> for BaseSnapshotError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            BaseSnapshotError::NoBasis(_) => None,
+            BaseSnapshotError::NoSuchCommit(e) => e.to_native(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum WalkChainError {
     EndOfChainNotASnapshot(String),
     NoBasis(String),
     NoSuchCommit(FromHashError),
+}
+
+impl ToNativeValue<JsValue> for WalkChainError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            WalkChainError::EndOfChainNotASnapshot(_) => None,
+            WalkChainError::NoBasis(_) => None,
+            WalkChainError::NoSuchCommit(e) => e.to_native(),
+        }
+    }
 }
 
 pub struct Meta<'a> {
@@ -539,12 +559,39 @@ pub enum LoadError {
     DuplicateIndexName(String),
 }
 
+impl ToNativeValue<JsValue> for LoadError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            LoadError::InvalidCookieJson(_) => None,
+            LoadError::MissingCookie => None,
+            LoadError::MissingMutatorName => None,
+            LoadError::MissingMutatorArgsJson => None,
+            LoadError::MissingTyped => None,
+            LoadError::MissingMeta => None,
+            LoadError::MissingValueHash => None,
+            LoadError::UnknownMetaType => None,
+            LoadError::InvalidIndex((_, e)) => e.to_native(),
+            LoadError::DuplicateIndexName(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 #[allow(clippy::enum_variant_names)]
 pub enum ValidateIndexDefinitionError {
     MissingName,
     MissingKeyPrefix,
     MissingIndexPath,
+}
+
+impl ToNativeValue<JsValue> for ValidateIndexDefinitionError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            ValidateIndexDefinitionError::MissingName => None,
+            ValidateIndexDefinitionError::MissingKeyPrefix => None,
+            ValidateIndexDefinitionError::MissingIndexPath => None,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -554,6 +601,16 @@ pub enum ValidateIndexError {
     MissingValueHash,
 }
 
+impl ToNativeValue<JsValue> for ValidateIndexError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            ValidateIndexError::MissingDefinition => None,
+            ValidateIndexError::InvalidDefintion(e) => e.to_native(),
+            ValidateIndexError::MissingValueHash => None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum FromHashError {
     GetChunkFailed(dag::Error),
@@ -561,10 +618,29 @@ pub enum FromHashError {
     LoadCommitFailed(LoadError),
 }
 
+impl ToNativeValue<JsValue> for FromHashError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            FromHashError::GetChunkFailed(e) => e.to_native(),
+            FromHashError::ChunkMissing(_) => None,
+            FromHashError::LoadCommitFailed(e) => e.to_native(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum InternalProgrammerError {
     InvalidCookieJson(serde_json::error::Error),
     WrongType(String),
+}
+
+impl ToNativeValue<JsValue> for InternalProgrammerError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            InternalProgrammerError::InvalidCookieJson(_) => None,
+            InternalProgrammerError::WrongType(_) => None,
+        }
+    }
 }
 
 #[cfg(test)]

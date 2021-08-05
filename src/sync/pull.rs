@@ -8,8 +8,10 @@ use crate::dag;
 use crate::db::{Commit, MetaTyped, Whence, DEFAULT_HEAD_NAME};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::fetch;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::fetch::errors::FetchError;
 use crate::prolly;
+use crate::to_native::ToNativeValue;
 use crate::util::rlog;
 use crate::util::rlog::LogContext;
 use crate::{
@@ -350,6 +352,15 @@ pub enum ChangedKeysError {
     InvalidUtf8(FromUtf8Error),
 }
 
+impl ToNativeValue<JsValue> for ChangedKeysError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            ChangedKeysError::GetMapError(e) => e.to_native(),
+            ChangedKeysError::InvalidUtf8(_) => None,
+        }
+    }
+}
+
 async fn add_changed_keys_for_indexes<'a>(
     main_snapshot: &'a Commit,
     sync_head: &'a Commit,
@@ -518,6 +529,7 @@ pub fn new_pull_http_request(
 
 #[derive(Debug)]
 pub enum PullError {
+    #[cfg(not(target_arch = "wasm32"))]
     FetchFailed(FetchError),
     InvalidRequest(http::Error),
     InvalidRequestJson(serde_json::error::Error),
@@ -612,6 +624,22 @@ impl Puller for JsPuller {
             call_js_request::<Body, Result, PullError>(&self.puller, url, body, auth, request_id)
                 .await?;
         Ok((res.response, res.http_request_info))
+    }
+}
+
+impl ToNativeValue<JsValue> for PullError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            #[cfg(not(target_arch = "wasm32"))]
+            PullError::FetchFailed(e) => e.to_native(),
+            PullError::InvalidRequest(_) => None,
+            PullError::InvalidResponse(_) => None,
+            PullError::SerializeRequestError(_) => None,
+            PullError::InvalidRequestJson(_) => None,
+            // TODO(arv): There is a `impl From<Error> for JsValue` but no `impl From<&Error> for &JsValue`. Why is Rust so weird?
+            PullError::InvalidResponseJson(_) => None,
+            PullError::JsError(v) => Some(v),
+        }
     }
 }
 

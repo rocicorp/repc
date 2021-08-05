@@ -1,13 +1,22 @@
 pub mod idbstore;
 pub mod memstore;
 
-use crate::util::rlog::LogContext;
+use crate::{to_native::ToNativeValue, util::rlog::LogContext};
 use async_trait::async_trait;
 use std::fmt;
+use wasm_bindgen::JsValue;
 
 #[derive(Debug, PartialEq)]
 pub enum StoreError {
     Str(String),
+}
+
+impl ToNativeValue<JsValue> for StoreError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            StoreError::Str(_) => None,
+        }
+    }
 }
 
 impl fmt::Display for StoreError {

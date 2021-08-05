@@ -1,8 +1,9 @@
 use super::index;
-use crate::prolly;
+use crate::{prolly, to_native::ToNativeValue};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use str_macro::str;
+use wasm_bindgen::JsValue;
 
 // How to use ScanOptions. This could be simpler if we added more
 // structure, eg separate scan types for regular vs index scans,
@@ -127,6 +128,14 @@ impl TryFrom<ScanOptions> for ScanOptionsInternal {
 #[derive(Debug)]
 pub enum ScanOptionsError {
     CreateScanKeyFailure(super::index::GetIndexKeysError),
+}
+
+impl ToNativeValue<JsValue> for ScanOptionsError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            ScanOptionsError::CreateScanKeyFailure(e) => e.to_native(),
+        }
+    }
 }
 
 // scan() yields decoded prolly map entries.

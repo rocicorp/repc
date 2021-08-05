@@ -1,4 +1,7 @@
+use wasm_bindgen::JsValue;
+
 use crate::dag;
+use crate::to_native::ToNativeValue;
 use crate::util::rlog::LogContext;
 
 pub async fn get_root(
@@ -24,6 +27,16 @@ pub enum GetRootError {
     ReadError(dag::Error),
     GetHeadError(dag::Error),
     NoHead,
+}
+
+impl ToNativeValue<JsValue> for GetRootError {
+    fn to_native(&self) -> Option<&JsValue> {
+        match self {
+            GetRootError::ReadError(e) => e.to_native(),
+            GetRootError::GetHeadError(e) => e.to_native(),
+            GetRootError::NoHead => None,
+        }
+    }
 }
 
 #[cfg(test)]
