@@ -179,7 +179,7 @@ pub fn scan_raw<'a>(
         from_key = &prefix;
     }
 
-    if let Some(key) = opts.start_key.as_ref().map(Vec::as_slice) {
+    if let Some(key) = opts.start_key.as_deref() {
         if key > from_key {
             from_key = key;
         }
