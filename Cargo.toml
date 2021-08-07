@@ -6,7 +6,6 @@ edition = "2018"
 
 [features]
 default = ["console_error_panic_hook"]
-benchmark = []
 
 [dependencies]
 async-fn = { path = "crates/async-fn" }
