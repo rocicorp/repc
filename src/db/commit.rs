@@ -569,6 +569,8 @@ pub enum InternalProgrammerError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::super::test_helpers::*;
     use super::*;
     use crate::dag::Chunk;
@@ -578,7 +580,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_base_snapshot() {
-        let store = dag::Store::new(Box::new(MemStore::new()));
+        let store = dag::Store::new(Arc::new(MemStore::new()));
         let mut chain: Chain = vec![];
 
         add_genesis(&mut chain, &store).await;
@@ -650,7 +652,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_local_mutations() {
-        let store = dag::Store::new(Box::new(MemStore::new()));
+        let store = dag::Store::new(Arc::new(MemStore::new()));
         let mut chain: Chain = vec![];
 
         add_genesis(&mut chain, &store).await;
@@ -684,7 +686,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_chain() {
-        let store = dag::Store::new(Box::new(MemStore::new()));
+        let store = dag::Store::new(Arc::new(MemStore::new()));
         let mut chain: Chain = vec![];
 
         add_genesis(&mut chain, &store).await;

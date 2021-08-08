@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::read::OwnedRead;
 use super::write::Write;
 use super::Result;
@@ -5,11 +7,11 @@ use crate::kv;
 use crate::util::rlog::LogContext;
 
 pub struct Store {
-    kv: Box<dyn kv::Store>,
+    kv: Arc<dyn kv::Store>,
 }
 
 impl Store {
-    pub fn new(kv: Box<dyn kv::Store>) -> Store {
+    pub fn new(kv: Arc<dyn kv::Store>) -> Store {
         Store { kv }
     }
 
