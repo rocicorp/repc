@@ -12,5 +12,7 @@ mod connection;
 mod dispatch;
 
 pub mod types;
-pub use connection::Rpc;
+pub use connection::{
+    do_init, validate_rebase, OpenTransactionError, Rpc, Transaction, TransactionsMap,
+};
 pub use dispatch::dispatch;
